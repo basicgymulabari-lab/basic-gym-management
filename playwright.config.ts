@@ -16,9 +16,15 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1 --port 4173 --strictPort",
-    url: "http://127.0.0.1:4173/login",
-    reuseExistingServer: !process.env.CI,
+    command: "node node_modules/vite/bin/vite.js dev --host 127.0.0.1 --port 4173 --strictPort",
+    url: "http://127.0.0.1:4173/@vite/client",
+    // Each isolated E2E suite injects a different synthetic auth URL/state.
+    // Never reuse a dev server launched with a different suite's environment.
+    reuseExistingServer: false,
     timeout: 60_000,
+    env: {
+      VITE_SUPABASE_URL: "https://application-wide-qa.supabase.co",
+      VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_application_wide_browser_test",
+    },
   },
 });

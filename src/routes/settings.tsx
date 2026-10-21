@@ -20,9 +20,11 @@ import {
   Users,
   CalendarDays,
   Clock3,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
+import { PrivateAssetImage } from "@/components/app/PrivateAssetImage";
 import { PageHeader, Panel } from "@/components/app/Panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,12 +56,18 @@ import {
   exportBackup,
   getCurrentSession,
   resetData,
+  retryCloudSync,
   restoreBackup,
   saveReceptionistAccount,
   setupTemplateData,
   updateSettings,
   useGym,
 } from "@/lib/gym/store";
+import {
+  deletePrivateAsset,
+  isPrivateGymLogoPath,
+  uploadPrivateAsset,
+} from "@/lib/gym/storage";
 
 const CURRENCY_BY_COUNTRY: Record<PhoneCountry, string> = {
   nepal: "रु",
@@ -72,7 +80,7 @@ const RECEPTIONIST_PERMISSION_OPTIONS: Array<{
   label: string;
 }> = [
   { key: "dashboard", label: "Dashboard" },
-  { key: "members", label: "Members" },
+  { key: "members", label: "Members & attendance" },
   { key: "memberships", label: "Memberships" },
   { key: "payments", label: "Payments" },
   { key: "products", label: "Products" },
@@ -114,6 +122,8 @@ function SettingsPage() {
   const state = useGym();
   const subscription = useSubscription();
   const fileRef = useRef<HTMLInputElement>(null);
+  const gymLogoFileRef = useRef<HTMLInputElement>(null);
+  const [gymLogoBusy, setGymLogoBusy] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateBusy, setTemplateBusy] = useState(false);
@@ -172,6 +182,85 @@ function SettingsPage() {
       toast.error(`Copy this login link: ${loginUrl}`);
     }
   };
+  const saveGymLogo = async (file?: File) => {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type.toLowerCase())) {
+      toast.error("Choose a PNG, JPG or WebP image.");
+      if (gymLogoFileRef.current) gymLogoFileRef.current.value = "";
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error("The gym logo must be 4 MB or smaller.");
+      if (gymLogoFileRef.current) gymLogoFileRef.current.value = "";
+      return;
+    }
+
+    setGymLogoBusy(true);
+    let uploadedPath: string | null = null;
+    let savedLocally = false;
+    const previousPath = s.gymLogo ?? null;
+    try {
+      uploadedPath = await uploadPrivateAsset("branding", file, file.name);
+      if (!updateSettings({ gymLogo: uploadedPath })) {
+        throw new Error("The gym logo could not be saved in this workspace.");
+      }
+      savedLocally = true;
+
+      const synchronized = await retryCloudSync().catch(() => false);
+      if (!synchronized) {
+        toast.warning("Logo updated here; cloud sync is pending, so the previous logo was kept.");
+        return;
+      }
+
+      let previousLogoRemoved = true;
+      if (previousPath && previousPath !== uploadedPath) {
+        try {
+          await deletePrivateAsset(previousPath);
+        } catch {
+          previousLogoRemoved = false;
+        }
+      }
+      toast.success(
+        previousLogoRemoved
+          ? "Gym logo updated"
+          : "Gym logo updated; the previous private image could not be removed",
+      );
+    } catch (error) {
+      if (uploadedPath && !savedLocally) {
+        await deletePrivateAsset(uploadedPath).catch(() => undefined);
+      }
+      toast.error(error instanceof Error ? error.message : "The gym logo could not be uploaded.");
+    } finally {
+      setGymLogoBusy(false);
+      if (gymLogoFileRef.current) gymLogoFileRef.current.value = "";
+    }
+  };
+  const removeGymLogo = async () => {
+    const previousPath = s.gymLogo;
+    if (!previousPath) return;
+    setGymLogoBusy(true);
+    try {
+      if (!updateSettings({ gymLogo: null })) {
+        throw new Error("The gym logo could not be removed from this workspace.");
+      }
+      const synchronized = await retryCloudSync().catch(() => false);
+      if (!synchronized) {
+        toast.warning("Logo removed here; cloud sync is pending, so the stored image was kept safely.");
+        return;
+      }
+      try {
+        await deletePrivateAsset(previousPath);
+      } catch {
+        toast.warning("Logo removed, but the old private image could not be deleted.");
+        return;
+      }
+      toast.success("Gym logo removed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The gym logo could not be removed.");
+    } finally {
+      setGymLogoBusy(false);
+    }
+  };
   const value = (key: keyof typeof s) => form?.[key] ?? String(s[key]);
   const set = (key: string, v: string) => setForm((f) => ({ ...(f ?? {}), [key]: v }));
 
@@ -182,11 +271,63 @@ function SettingsPage() {
         subtitle="Core gym operations work locally; online billing becomes authoritative when cloud services are connected"
       />
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title="Gym Profile" collapsible>
+      <div
+        data-testid="settings-sections"
+        className="columns-1 gap-6 xl:columns-2 [&>section]:mb-6 [&>section]:break-inside-avoid"
+      >
+        <Panel title="Gym Profile" collapsible mobileDefaultExpanded>
+          <div className="mb-5 flex flex-col gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:flex-row sm:items-center">
+            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl border border-gold/35 bg-[image:var(--gradient-gold)] text-primary-foreground">
+              <PrivateAssetImage
+                source={isPrivateGymLogoPath(s.gymLogo) ? s.gymLogo : null}
+                alt="Gym logo preview"
+                className="h-full w-full object-contain"
+                fallback={<span className="font-display text-2xl">IV</span>}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Gym logo / administrator profile image</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Shown in the sidebar brand mark and administrator badge. PNG, JPG or WebP, up to 4 MB.
+                The image is stored privately with this gym.
+              </p>
+            </div>
+            <input
+              ref={gymLogoFileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              aria-label="Choose gym logo"
+              className="sr-only"
+              disabled={gymLogoBusy}
+              onChange={(event) => void saveGymLogo(event.currentTarget.files?.[0])}
+            />
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={gymLogoBusy}
+                onClick={() => gymLogoFileRef.current?.click()}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {gymLogoBusy ? "Saving…" : s.gymLogo ? "Change logo" : "Upload logo"}
+              </Button>
+              {s.gymLogo && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={gymLogoBusy}
+                  onClick={() => void removeGymLogo()}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Remove
+                </Button>
+              )}
+            </div>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Gym name" value={value("gymName")} onChange={(v) => set("gymName", v)} />
-            <Field label="Tagline" value={value("tagline")} onChange={(v) => set("tagline", v)} />
+            <div className="sm:col-span-2">
+              <Field label="Tagline" value={value("tagline")} onChange={(v) => set("tagline", v)} />
+            </div>
             <Field label="Phone" value={value("phone")} onChange={(v) => set("phone", v)} />
             <Field label="Email" value={value("email")} onChange={(v) => set("email", v)} />
             <Field
@@ -236,7 +377,7 @@ function SettingsPage() {
           </div>
         </Panel>
 
-        <Panel title="Invoicing & Alerts" collapsible>
+        <Panel title="Invoicing & Alerts" collapsible mobileDefaultExpanded={false}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Invoice prefix</Label>
@@ -302,7 +443,7 @@ function SettingsPage() {
           </p>
         </Panel>
 
-        <Panel title="Calendar & Region" collapsible>
+        <Panel title="Calendar & Region" collapsible mobileDefaultExpanded={false}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Calendar system</Label>
@@ -367,6 +508,7 @@ function SettingsPage() {
           title="Subscription & Billing"
           description="Free member allowance, Pro lifecycle, expiry, payments and recharge codes"
           collapsible
+          mobileDefaultExpanded={false}
         >
           <div
             className={`mb-4 rounded-xl border px-4 py-3 text-xs leading-5 ${
@@ -484,6 +626,7 @@ function SettingsPage() {
           title="Guided App Tour"
           description="Replay the complete 15-step walkthrough whenever you need it"
           collapsible
+          mobileDefaultExpanded={false}
         >
           <div className="flex flex-col gap-4 rounded-xl border border-gold/25 bg-gold/5 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
@@ -514,7 +657,7 @@ function SettingsPage() {
           </div>
         </Panel>
 
-        <Panel title="Backup & Restore" collapsible>
+        <Panel title="Backup & Restore" collapsible mobileDefaultExpanded={false}>
           <p className="text-sm text-muted-foreground">
             Export a complete JSON snapshot of your gym data and keep it somewhere safe. Restoring
             replaces everything currently on this device.
@@ -570,6 +713,7 @@ function SettingsPage() {
           title="Staff Access"
           description="A separate, restricted account for your receptionist"
           collapsible
+          mobileDefaultExpanded={false}
         >
           <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-secondary/30 p-4">
             <div className="flex min-w-0 gap-3">
@@ -852,11 +996,11 @@ function SettingsPage() {
           </div>
         </Panel>
 
-        <Panel title="Admin Security" collapsible>
+        <Panel title="Admin Security" collapsible mobileDefaultExpanded={false}>
           <AccountSecurity />
         </Panel>
 
-        <Panel title="Danger Zone" collapsible>
+        <Panel title="Danger Zone" collapsible mobileDefaultExpanded={false}>
           <div className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4">
             <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
             <p className="text-sm text-muted-foreground">

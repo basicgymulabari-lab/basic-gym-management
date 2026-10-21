@@ -185,7 +185,7 @@ export function PlatformProManager() {
         p_owner_id: selectedOwner.owner_id,
         p_days: duration,
         p_valid_days: redeemWindow,
-        p_batch_label: label.trim() || null,
+        p_batch_label: label.trim() || undefined,
       });
       if (error) throw error;
       const result = data?.[0];

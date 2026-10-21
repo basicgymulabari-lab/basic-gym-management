@@ -2,7 +2,16 @@
 import { getCloudGymContext, recordCloudAuditEvent } from "./cloud";
 
 export const PRIVATE_ASSET_BUCKET = "ironvault-private";
-export type PrivateAssetKind = "members" | "expenses";
+export type PrivateAssetKind = "members" | "expenses" | "branding";
+
+export function isPrivateGymLogoPath(source?: string | null) {
+  return Boolean(
+    source &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/branding\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/i.test(
+        source,
+      ),
+  );
+}
 
 const MIME_EXTENSION: Record<string, string> = {
   "image/jpeg": "jpg",

@@ -101,7 +101,6 @@ export async function upsertEntitlement(input: {
     { onConflict: "owner_id" },
   );
   if (error) {
-    console.error("Entitlement upsert failed", error);
     throw new HttpError("Could not update subscription status.", 502, "ENTITLEMENT_UPDATE_FAILED");
   }
 }
@@ -113,7 +112,9 @@ export async function findGymByProviderSubscription(provider: Provider, subscrip
     .eq("provider_source", provider)
     .eq("provider_subscription_id", subscriptionId)
     .maybeSingle();
-  if (error) return null;
+  if (error) {
+    throw new HttpError("Could not verify the subscription owner.", 502, "ENTITLEMENT_LOOKUP_FAILED");
+  }
   return data?.gym_id && data?.owner_id ? { gymId: data.gym_id, ownerId: data.owner_id } : null;
 }
 
@@ -314,7 +315,9 @@ export async function upsertBillingTransaction(input: {
   };
   const conflict = "provider,provider_payment_id,kind,provider_refund_id";
   const { error } = await admin.from("billing_transactions").upsert(row, { onConflict: conflict });
-  if (error) console.error("Billing transaction upsert failed", error);
+  if (error) {
+    throw new HttpError("Could not record the billing transaction.", 502, "BILLING_TRANSACTION_UPDATE_FAILED");
+  }
 }
 
 export function stripePriceId() {

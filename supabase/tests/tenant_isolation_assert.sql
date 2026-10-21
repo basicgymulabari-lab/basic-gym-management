@@ -78,7 +78,7 @@ select set_config('request.jwt.claim.sub', '51000000-0000-0000-0000-000000000001
 
 do $$
 begin
-  if public.iv_current_gym_id() <> 'caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid then
+  if private.iv_current_gym_id() <> 'caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid then
     raise exception 'owner A resolved to the wrong tenant';
   end if;
   if public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName' <> 'QA Gym A' then
@@ -90,10 +90,10 @@ begin
   if public.get_current_gym_context() ->> 'subscription_status' <> 'active' then
     raise exception 'owner A did not resolve its gym Pro entitlement';
   end if;
-  if not public.iv_can_access_private_object('caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg') then
+  if not private.iv_can_access_private_object('caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg') then
     raise exception 'owner A cannot resolve its own private member object';
   end if;
-  if public.iv_can_access_private_object('cbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/members/photo.jpg') then
+  if private.iv_can_access_private_object('cbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/members/photo.jpg') then
     raise exception 'owner A can resolve Gym B private objects';
   end if;
   if has_table_privilege(current_user, 'public.gym_workspaces', 'SELECT') then
@@ -203,7 +203,7 @@ $$;
 select set_config('request.jwt.claim.sub', '52000000-0000-0000-0000-000000000002', true);
 do $$
 begin
-  if public.iv_current_gym_id() <> 'cbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid then
+  if private.iv_current_gym_id() <> 'cbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid then
     raise exception 'owner B resolved to the wrong tenant';
   end if;
   if public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName' <> 'QA Gym B' then
@@ -223,7 +223,7 @@ declare
   v_payload jsonb := public.load_current_gym_workspace();
   v_context jsonb := public.get_current_gym_context();
 begin
-  if public.iv_current_gym_id() <> 'caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid then
+  if private.iv_current_gym_id() <> 'caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid then
     raise exception 'receptionist resolved to the wrong tenant';
   end if;
   if (v_payload -> 'state' -> 'products' -> 0 ->> 'cost')::numeric <> 0 then
@@ -232,10 +232,10 @@ begin
   if jsonb_array_length(v_payload -> 'state' -> 'expenses') <> 0 then
     raise exception 'receptionist received expenses without permission';
   end if;
-  if not public.iv_can_access_private_object('caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg') then
+  if not private.iv_can_access_private_object('caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg') then
     raise exception 'receptionist with member permission cannot resolve member photo';
   end if;
-  if public.iv_can_access_private_object('caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/expenses/receipt.pdf') then
+  if private.iv_can_access_private_object('caaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/expenses/receipt.pdf') then
     raise exception 'receptionist without expense permission can resolve expense receipt';
   end if;
   if exists (select 1 from public.subscription_entitlements) then

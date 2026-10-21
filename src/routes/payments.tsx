@@ -38,11 +38,12 @@ import {
   planOf,
   salePaid,
   salesFor,
+  shortDateTime,
   shortDate,
   totalDue,
   totalRevenue,
 } from "@/lib/gym/selectors";
-import type { PaymentMethod } from "@/lib/gym/types";
+import type { Member, PaymentMethod } from "@/lib/gym/types";
 import { addMoney, isPositiveMoneyAmount, sumMoney } from "@/lib/gym/money";
 
 const searchSchema = z.object({
@@ -77,12 +78,44 @@ export const Route = createFileRoute("/payments")({
 
 const PAGE_SIZE = 10;
 
+function PaymentMemberName({ member, label }: { member: Member | undefined; label: string }) {
+  if (!member) return <>{label}</>;
+
+  return (
+    <Link
+      to="/members/$memberId"
+      params={{ memberId: member.id }}
+      search={{ tab: undefined }}
+      aria-label={`Open member profile for ${member.name}`}
+      title={`Open ${member.name}'s profile`}
+      className="rounded-sm no-underline hover:text-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+    >
+      {label}
+    </Link>
+  );
+}
+
 function PaymentsPage() {
   const state = useGym();
   const navigate = useNavigate({ from: "/payments" });
   const search = Route.useSearch();
   const [entryOpen, setEntryOpen] = useState(false);
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+
+  const profileMembers = useMemo(() => {
+    const byId = new Map<string, Member>();
+    const byName = new Map<string, Member | null>();
+    if (!state) return { byId, byName };
+
+    for (const member of gymMembers(state)) {
+      byId.set(member.id, member);
+      const name = member.name.normalize("NFKC").trim().toLowerCase();
+      if (!name) continue;
+      byName.set(name, byName.has(name) ? null : member);
+    }
+
+    return { byId, byName };
+  }, [state]);
 
   const tab = search.tab === "pending" ? "pending" : "collected";
   const q = search.q.slice(0, 60).toLowerCase();
@@ -129,6 +162,59 @@ function PaymentsPage() {
   const list = tab === "collected" ? history : pending;
   const effectivePage = Math.min(page, Math.max(1, Math.ceil(list.length / PAGE_SIZE)));
   const paged = list.slice((effectivePage - 1) * PAGE_SIZE, effectivePage * PAGE_SIZE);
+  const openPaymentInvoice = (p: (typeof history)[number]) => {
+    const sale = p.saleId ? state.sales.find((s) => s.id === p.saleId) : undefined;
+    const payer = memberOf(state, p.memberId);
+    const walkIn = p.kind === "other" || Boolean(sale && (!payer || isWalkIn(payer)));
+    const membership = p.membershipId
+      ? state.memberships.find((item) => item.id === p.membershipId)
+      : undefined;
+    const membershipPlan = membership
+      ? state.plans.find((plan) => plan.id === membership.planId)
+      : undefined;
+    setInvoice({
+      invoiceNo: p.invoiceNo,
+      date: p.date,
+      title: sale
+        ? "Sales Invoice"
+        : p.kind === "other"
+          ? "Customer Payment Receipt"
+          : p.kind === "membership"
+            ? "Membership Payment Receipt"
+            : "Payment Receipt",
+      walkIn,
+      billedTo: p.who,
+      contact: p.payerPhone ?? payer?.phone ?? sale?.buyerPhone,
+      contactLines: walkIn
+        ? [
+            p.payerEmail ?? payer?.email ?? sale?.buyerEmail ?? "",
+            payer?.address ?? sale?.buyerAddress ?? "",
+          ]
+        : undefined,
+      lines: sale
+        ? [{ description: sale.productName, qty: sale.qty, rate: sale.unitPrice }]
+        : membership
+          ? [
+              {
+                description: p.note || `${membershipPlan?.name ?? "Membership"} payment`,
+                qty: 1,
+                rate: p.amount,
+              },
+            ]
+          : [{ description: p.note || "Payment", qty: 1, rate: p.amount }],
+      discount: sale?.discount ?? 0,
+      joiningFee: 0,
+      paid: p.amount,
+      method: p.method,
+    });
+  };
+
+  const memberForPayment = (payment: (typeof history)[number]) => {
+    const linkedMember = payment.memberId ? profileMembers.byId.get(payment.memberId) : undefined;
+    if (linkedMember) return linkedMember;
+    const name = payment.who.normalize("NFKC").trim().toLowerCase();
+    return profileMembers.byName.get(name) ?? undefined;
+  };
 
   return (
     <>
@@ -142,7 +228,7 @@ function PaymentsPage() {
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Metric
           icon={Wallet}
           label="Collected revenue"
@@ -155,12 +241,14 @@ function PaymentsPage() {
           value={money(totalDue(state), cur)}
           tone="warning"
         />
-        <Metric
-          icon={ReceiptText}
-          label="Invoices"
-          value={String(state.payments.length)}
-          tone="gold"
-        />
+        <div className="sm:col-span-2 xl:col-span-1">
+          <Metric
+            icon={ReceiptText}
+            label="Invoices"
+            value={String(state.payments.length)}
+            tone="gold"
+          />
+        </div>
       </div>
 
       <Panel>
@@ -196,7 +284,8 @@ function PaymentsPage() {
           <span>
             {list.length} matching {tab === "pending" ? "balances" : "payments"}
           </span>
-          {(getCurrentSession()?.role === "admin" || getCurrentSession()?.permissions?.payments) && (
+          {(getCurrentSession()?.role === "admin" ||
+            getCurrentSession()?.permissions?.payments) && (
             <Button
               variant="secondary"
               size="sm"
@@ -214,10 +303,10 @@ function PaymentsPage() {
                         ]),
                       ]
                     : [
-                        ["Invoice", "Date", "Customer", "Method", `Amount (${cur})`],
+                        ["Invoice", "Paid at", "Customer", "Method", `Amount (${cur})`],
                         ...history.map((p) => [
                           p.invoiceNo,
-                          shortDate(p.date),
+                          shortDateTime(p.date),
                           p.who,
                           p.method,
                           p.amount,
@@ -232,113 +321,99 @@ function PaymentsPage() {
           )}
         </div>
 
-        <div className="mt-5 overflow-x-auto">
+        <div className="mt-5">
           {paged.length === 0 ? (
             <EmptyState title="Nothing to show" hint="Adjust your search or record a payment." />
           ) : tab === "collected" ? (
-            <table className="w-full min-w-[760px] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <th className="py-3">Invoice</th>
-                  <th className="py-3">Paid by</th>
-                  <th className="py-3">Type</th>
-                  <th className="py-3">Method</th>
-                  <th className="py-3">Date</th>
-                  <th className="py-3 text-right">Amount</th>
-                  <th className="py-3 text-right">Invoice</th>
-                </tr>
-              </thead>
-              <tbody>
+            <>
+              <div className="space-y-3 xl:hidden">
                 {(paged as typeof history).map((p) => (
-                  <tr key={p.id} className="border-b border-border/50 hover:bg-secondary/40">
-                    <td className="py-3 font-medium text-gold">{p.invoiceNo}</td>
-                    <td className="py-3">{p.who}</td>
-                    <td className="py-3 capitalize text-muted-foreground">{p.kind}</td>
-                    <td className="py-3 capitalize text-muted-foreground">{p.method}</td>
-                    <td className="py-3 text-muted-foreground">{shortDate(p.date)}</td>
-                    <td className="py-3 text-right font-medium">{money(p.amount, cur)}</td>
-                    <td className="py-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        aria-label="Print invoice"
-                        onClick={() => {
-                          const sale = p.saleId
-                            ? state.sales.find((s) => s.id === p.saleId)
-                            : undefined;
-                          const payer = memberOf(state, p.memberId);
-                          const walkIn =
-                            p.kind === "other" || Boolean(sale && (!payer || isWalkIn(payer)));
-                          const membership = p.membershipId
-                            ? state.memberships.find((item) => item.id === p.membershipId)
-                            : undefined;
-                          const membershipPlan = membership
-                            ? state.plans.find((plan) => plan.id === membership.planId)
-                            : undefined;
-                          setInvoice({
-                            invoiceNo: p.invoiceNo,
-                            date: p.date,
-                            title:
-                              sale
-                                ? "Sales Invoice"
-                                : p.kind === "other"
-                                  ? "Customer Payment Receipt"
-                                  : "Membership Invoice",
-                            walkIn,
-                            billedTo: p.who,
-                            contact:
-                              p.payerPhone ?? memberOf(state, p.memberId)?.phone ?? sale?.buyerPhone,
-                            contactLines: walkIn
-                              ? [
-                                  p.payerEmail ?? payer?.email ?? sale?.buyerEmail ?? "",
-                                  payer?.address ?? sale?.buyerAddress ?? "",
-                                ]
-                              : undefined,
-                            lines: sale
-                              ? [
-                                  {
-                                    description: sale.productName,
-                                    qty: sale.qty,
-                                    rate: sale.unitPrice,
-                                  },
-                                ]
-                              : membership
-                                ? [
-                                    {
-                                      description: `${membershipPlan?.name ?? "Membership"} membership`,
-                                      qty: 1,
-                                      rate: membership.price,
-                                    },
-                                  ]
-                                : [{ description: p.note || "Payment", qty: 1, rate: p.amount }],
-                            discount: sale?.discount ?? membership?.discount ?? 0,
-                            joiningFee: membership?.joiningFee ?? 0,
-                            paid: membership ? paidFor(state, membership.id) : p.amount,
-                            method: p.method,
-                          });
-                        }}
-                      >
-                        <Printer className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
+                  <article
+                    key={p.id}
+                    className="rounded-xl border border-border bg-secondary/20 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="break-all font-medium text-gold">{p.invoiceNo}</p>
+                        <p className="mt-1 break-words">
+                          <PaymentMemberName member={memberForPayment(p)} label={p.who} />
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {p.payerPhone ?? memberOf(state, p.memberId)?.phone ?? ""}
+                        </p>
+                      </div>
+                      <p className="shrink-0 text-right font-medium">{money(p.amount, cur)}</p>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-border/60 pt-3 text-sm">
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Type</dt>
+                        <dd className="capitalize">{p.kind}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Method</dt>
+                        <dd className="capitalize">{p.method}</dd>
+                      </div>
+                      <div className="col-span-2">
+                        <dt className="text-xs text-muted-foreground">Paid at</dt>
+                        <dd>{shortDateTime(p.date)}</dd>
+                      </div>
+                    </dl>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="mt-3 w-full"
+                      aria-label={`Print invoice ${p.invoiceNo}`}
+                      onClick={() => openPaymentInvoice(p)}
+                    >
+                      <Printer className="mr-2 h-4 w-4" /> View invoice
+                    </Button>
+                  </article>
                 ))}
-              </tbody>
-            </table>
+              </div>
+              <div className="hidden overflow-x-auto xl:block">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <th className="py-3">Invoice</th>
+                      <th className="py-3">Paid by</th>
+                      <th className="py-3">Type</th>
+                      <th className="py-3">Method</th>
+                      <th className="py-3">Paid at</th>
+                      <th className="py-3 text-right">Amount</th>
+                      <th className="py-3 text-right">Invoice</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(paged as typeof history).map((p) => (
+                      <tr key={p.id} className="border-b border-border/50 hover:bg-secondary/40">
+                        <td className="py-3 font-medium text-gold">{p.invoiceNo}</td>
+                        <td className="py-3">
+                          <PaymentMemberName member={memberForPayment(p)} label={p.who} />
+                        </td>
+                        <td className="py-3 capitalize text-muted-foreground">{p.kind}</td>
+                        <td className="py-3 capitalize text-muted-foreground">{p.method}</td>
+                        <td className="py-3 text-muted-foreground">{shortDateTime(p.date)}</td>
+                        <td className="py-3 text-right font-medium">{money(p.amount, cur)}</td>
+                        <td className="py-3 text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label="Print invoice"
+                            onClick={() => openPaymentInvoice(p)}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           ) : (
-            <table className="w-full min-w-[720px] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <th className="py-3">Member</th>
-                  <th className="py-3">Source</th>
-                  <th className="py-3">Total</th>
-                  <th className="py-3">Paid</th>
-                  <th className="py-3">Status</th>
-                  <th className="py-3 text-right">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
+            <>
+              <div className="space-y-3 xl:hidden">
                 {(paged as typeof pending).map(({ member, due, ms }) => {
                   const purchases = salesFor(state, member.id);
                   const productTotal = sumMoney(purchases, (sale) => sale.total);
@@ -348,36 +423,109 @@ function PaymentsPage() {
                   const price = addMoney(membershipTotal, productTotal);
                   const paid = addMoney(membershipPaid, productPaid);
                   return (
-                    <tr key={member.id} className="border-b border-border/50 hover:bg-secondary/40">
-                      <td className="py-3">
-                        <Link
-                          to="/members/$memberId"
-                          params={{ memberId: member.id }}
-                          search={{ tab: undefined }}
-                          className="font-medium hover:text-gold"
-                        >
-                          {member.name}
-                        </Link>
-                        <p className="text-xs text-muted-foreground">{member.phone}</p>
-                      </td>
-                      <td className="py-3 text-muted-foreground">
-                        {isWalkIn(member)
-                          ? "Product purchases"
-                          : (planOf(state, ms?.planId)?.name ?? "—")}
-                      </td>
-                      <td className="py-3 text-muted-foreground">{money(price, cur)}</td>
-                      <td className="py-3 text-success">{money(paid, cur)}</td>
-                      <td className="py-3">
+                    <article
+                      key={member.id}
+                      className="rounded-xl border border-border bg-secondary/20 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <Link
+                            to="/members/$memberId"
+                            params={{ memberId: member.id }}
+                            search={{ tab: undefined }}
+                            className="break-words font-medium hover:text-gold"
+                          >
+                            {member.name}
+                          </Link>
+                          <p className="text-xs text-muted-foreground">{member.phone}</p>
+                        </div>
                         <StatusBadge status={paid === 0 ? "unpaid" : "partial"} />
-                      </td>
-                      <td className="py-3 text-right font-medium text-warning">
-                        {money(due, cur)}
-                      </td>
-                    </tr>
+                      </div>
+                      <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-border/60 pt-3 text-sm">
+                        <div className="col-span-2 min-w-0">
+                          <dt className="text-xs text-muted-foreground">Source</dt>
+                          <dd className="break-words">
+                            {isWalkIn(member)
+                              ? "Product purchases"
+                              : (planOf(state, ms?.planId)?.name ?? "—")}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-muted-foreground">Total</dt>
+                          <dd>{money(price, cur)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-muted-foreground">Paid</dt>
+                          <dd className="text-success">{money(paid, cur)}</dd>
+                        </div>
+                      </dl>
+                      <p className="mt-3 border-t border-border/60 pt-3 text-sm">
+                        Balance{" "}
+                        <span className="float-right font-medium text-warning">
+                          {money(due, cur)}
+                        </span>
+                      </p>
+                    </article>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+              <div className="hidden overflow-x-auto xl:block">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <th className="py-3">Member</th>
+                      <th className="py-3">Source</th>
+                      <th className="py-3">Total</th>
+                      <th className="py-3">Paid</th>
+                      <th className="py-3">Status</th>
+                      <th className="py-3 text-right">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(paged as typeof pending).map(({ member, due, ms }) => {
+                      const purchases = salesFor(state, member.id);
+                      const productTotal = sumMoney(purchases, (sale) => sale.total);
+                      const productPaid = sumMoney(purchases, (sale) => salePaid(state, sale));
+                      const membershipTotal = ms ? membershipPayable(ms) : 0;
+                      const membershipPaid = ms ? paidFor(state, ms.id) : 0;
+                      const price = addMoney(membershipTotal, productTotal);
+                      const paid = addMoney(membershipPaid, productPaid);
+                      return (
+                        <tr
+                          key={member.id}
+                          className="border-b border-border/50 hover:bg-secondary/40"
+                        >
+                          <td className="py-3">
+                            <Link
+                              to="/members/$memberId"
+                              params={{ memberId: member.id }}
+                              search={{ tab: undefined }}
+                              className="font-medium hover:text-gold"
+                            >
+                              {member.name}
+                            </Link>
+                            <p className="text-xs text-muted-foreground">{member.phone}</p>
+                          </td>
+                          <td className="py-3 text-muted-foreground">
+                            {isWalkIn(member)
+                              ? "Product purchases"
+                              : (planOf(state, ms?.planId)?.name ?? "—")}
+                          </td>
+                          <td className="py-3 text-muted-foreground">{money(price, cur)}</td>
+                          <td className="py-3 text-success">{money(paid, cur)}</td>
+                          <td className="py-3">
+                            <StatusBadge status={paid === 0 ? "unpaid" : "partial"} />
+                          </td>
+                          <td className="py-3 text-right font-medium text-warning">
+                            {money(due, cur)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
 
@@ -422,7 +570,9 @@ function Metric({
       </span>
       <div className="min-w-0">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-        <p className="truncate font-display text-2xl">{value}</p>
+        <p data-testid="payments-metric-value" className="whitespace-nowrap font-display text-xl xl:text-2xl">
+          {value}
+        </p>
       </div>
     </div>
   );
@@ -547,7 +697,7 @@ function PaymentDialog({
               <Input
                 type="number"
                 min={1}
-                max={payerType === "member" ? (due || undefined) : undefined}
+                max={payerType === "member" ? due || undefined : undefined}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
@@ -574,7 +724,9 @@ function PaymentDialog({
               value={note}
               maxLength={120}
               onChange={(e) => setNote(e.target.value)}
-              placeholder={payerType === "member" ? "Membership payment" : "Service or other payment"}
+              placeholder={
+                payerType === "member" ? "Membership payment" : "Service or other payment"
+              }
             />
           </div>
           <div className="flex justify-end gap-2">
@@ -585,8 +737,7 @@ function PaymentDialog({
               onClick={() => {
                 if (submittingRef.current) return;
                 const value = Number(amount);
-                if (!isPositiveMoneyAmount(value))
-                  return toast.error("Enter a valid amount");
+                if (!isPositiveMoneyAmount(value)) return toast.error("Enter a valid amount");
                 if (payerType === "member") {
                   if (!memberId) return toast.error("Select a member");
                   if (due <= 0) return toast.error("This member has no outstanding balance");
@@ -601,10 +752,7 @@ function PaymentDialog({
                   )
                     return toast.error("Enter a valid customer email");
                   const phoneDigits = customerPhone.replace(/\D/g, "");
-                  if (
-                    customerPhone.trim() &&
-                    (phoneDigits.length < 7 || phoneDigits.length > 15)
-                  )
+                  if (customerPhone.trim() && (phoneDigits.length < 7 || phoneDigits.length > 15))
                     return toast.error("Enter a valid customer phone number");
                 }
                 submittingRef.current = true;
@@ -616,6 +764,7 @@ function PaymentDialog({
                           membershipId: ms?.id ?? null,
                           amount: value,
                           method,
+                          purpose: "membership_balance",
                           note: note.trim() || "Manual payment entry",
                         })
                       : addCustomerPayment({

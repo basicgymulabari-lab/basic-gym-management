@@ -7,6 +7,7 @@ export type CloudGymRole = "owner" | "receptionist";
 
 export type CloudGymContext = {
   gymId: string;
+  workspaceRevision?: number | null;
   role: CloudGymRole;
   permissions: Partial<ReceptionistPermissions>;
   displayName: string;
@@ -72,12 +73,23 @@ export function cloudGymContextFrom(value: unknown): CloudGymContext | null {
   const row = asRecord(value);
   if (!row || typeof row.gym_id !== "string") return null;
   if (row.role !== "owner" && row.role !== "receptionist") return null;
+  const revisionValue = row.workspace_revision;
+  const workspaceRevision =
+    typeof revisionValue === "number"
+      ? revisionValue
+      : typeof revisionValue === "string" && revisionValue.trim()
+        ? Number(revisionValue)
+        : null;
   // Older deployed context RPCs return the legacy expiry fields instead of
   // subscription_status. Use the same gym-scoped parser as the Pro badge so
   // receptionist offline sessions preserve the owner's shared entitlement.
   const subscription = subscriptionFromGymContext(row);
   return {
     gymId: row.gym_id,
+    workspaceRevision:
+      workspaceRevision !== null && Number.isSafeInteger(workspaceRevision) && workspaceRevision >= 0
+        ? workspaceRevision
+        : null,
     role: row.role,
     permissions: permissionsFrom(row.permissions),
     displayName: typeof row.display_name === "string" ? row.display_name : "",
@@ -138,6 +150,21 @@ export async function getCloudGymContext(): Promise<CloudGymContext | null> {
   const { data, error } = await supabase.rpc("get_current_gym_context");
   if (error) throw error;
   return cloudGymContextFrom(data);
+}
+
+/** Reads only tenant context and the workspace revision for cheap sync checks. */
+export async function getCloudWorkspaceRevision(): Promise<{
+  gymId: string;
+  revision: number;
+  enabled: boolean;
+} | null> {
+  const context = await getCloudGymContext();
+  if (!context || context.workspaceRevision == null) return null;
+  return {
+    gymId: context.gymId,
+    revision: context.workspaceRevision,
+    enabled: context.enabled,
+  };
 }
 
 export async function ensureOwnerGym(
@@ -214,8 +241,8 @@ export async function recordCloudAuditEvent(
 ) {
   const { error } = await supabase.rpc("record_audit_event", {
     p_action: action,
-    p_entity_type: entityType ?? null,
-    p_entity_id: entityId ?? null,
+    p_entity_type: entityType ?? undefined,
+    p_entity_id: entityId ?? undefined,
     p_metadata: metadata,
   });
   if (error) throw error;

@@ -33,12 +33,12 @@ export function StatCard({
     <Link
       to={to as never}
       search={search as never}
-      className="group surface-panel hairline-top relative block overflow-hidden rounded-2xl p-5 transition-all duration-300 hover:-translate-y-1 hover:border-gold/40"
+      className="group surface-panel hairline-top relative block overflow-hidden rounded-2xl p-4 transition-all duration-300 hover:-translate-y-1 hover:border-gold/40 sm:p-5"
     >
       <div className="flex items-start justify-between gap-3">
         <span
           className={cn(
-            "grid h-11 w-11 shrink-0 place-items-center rounded-xl border",
+            "grid h-10 w-10 shrink-0 place-items-center rounded-xl border sm:h-11 sm:w-11",
             toneRing[tone],
           )}
         >
@@ -46,11 +46,11 @@ export function StatCard({
         </span>
         <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-gold" />
       </div>
-      <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+      <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:mt-5 sm:text-[11px] sm:tracking-[0.18em]">
         {label}
       </p>
-      <p className="mt-1 font-display text-3xl tracking-wide">{value}</p>
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      <p className="mt-1 font-display text-2xl tracking-wide sm:text-3xl">{value}</p>
+      {hint && <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">{hint}</p>}
     </Link>
   );
 }

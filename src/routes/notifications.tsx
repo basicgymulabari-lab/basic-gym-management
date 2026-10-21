@@ -10,7 +10,6 @@ import {
   Smartphone,
   UserRoundSearch,
 } from "lucide-react";
-import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
 import { TablePager } from "@/components/app/TablePager";
@@ -133,7 +132,7 @@ function sendReminder(reminder: Reminder, channel: "whatsapp" | "sms" | "email")
   const body = encodeURIComponent(reminder.message);
 
   if (channel === "email") {
-    if (!reminder.email) return;
+    if (!reminder.email) return null;
     window.location.href = `mailto:${reminder.email}?subject=${encodeURIComponent("Reminder")}&body=${body}`;
   } else {
     const url =
@@ -143,9 +142,7 @@ function sendReminder(reminder: Reminder, channel: "whatsapp" | "sms" | "email")
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  toast.success(
-    `${channel === "whatsapp" ? "WhatsApp" : channel === "sms" ? "SMS" : "Email"} message prepared for ${reminder.name}`,
-  );
+  return `${channel === "whatsapp" ? "WhatsApp" : channel === "sms" ? "SMS" : "Email"} message prepared for ${reminder.name}`;
 }
 
 export const Route = createFileRoute("/notifications")({
@@ -175,9 +172,15 @@ function NotificationsPage() {
   const state = useGym();
   const [reminderPage, setReminderPage] = useState(1);
   const [notificationPage, setNotificationPage] = useState(1);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const items = useMemo(() => (state ? buildNotifications(state) : []), [state]);
   const reminders = useMemo(() => (state ? buildReminderQueue(state) : []), [state]);
   if (!state) return null;
+
+  function prepareReminder(reminder: Reminder, channel: "whatsapp" | "sms" | "email") {
+    const message = sendReminder(reminder, channel);
+    if (message) setFeedback({ kind: "success", message });
+  }
 
   const read = new Set(state.readNotifications);
   const unread = items.filter((n) => !read.has(n.id));
@@ -195,9 +198,9 @@ function NotificationsPage() {
             disabled={unread.length === 0}
             onClick={() => {
               if (markNotificationsRead(items.map((n) => n.id))) {
-                toast.success("All notifications marked as read");
+                setFeedback({ kind: "success", message: "All notifications marked as read." });
               } else {
-                toast.error("Notifications could not be updated");
+                setFeedback({ kind: "error", message: "Notifications could not be updated." });
               }
             }}
           >
@@ -205,6 +208,16 @@ function NotificationsPage() {
           </Button>
         }
       />
+
+      {feedback && (
+        <p
+          role={feedback.kind === "error" ? "alert" : "status"}
+          aria-live={feedback.kind === "error" ? "assertive" : "polite"}
+          className={`mb-4 rounded-lg border p-3 text-sm ${feedback.kind === "error" ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-gold/30 bg-gold/5 text-foreground"}`}
+        >
+          {feedback.message}
+        </p>
+      )}
 
       <Panel
         title="Reminder Center"
@@ -246,14 +259,14 @@ function NotificationsPage() {
             hint="The queue updates automatically as your records change."
           />
         ) : (
-          <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
+          <div className="space-y-2">
             {reminderPageView.items.map((reminder) => {
               const meta = REMINDER_META[reminder.kind];
               const Icon = meta.icon;
               return (
                 <article
                   key={reminder.id}
-                  className="grid gap-3 rounded-xl border border-border bg-secondary/20 p-3 transition-colors hover:border-gold/30 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-4"
+                  className="grid gap-3 rounded-xl border border-border bg-secondary/20 p-3 transition-colors hover:border-gold/30 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:p-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <span
@@ -271,13 +284,13 @@ function NotificationsPage() {
                       <p className="mt-0.5 text-xs text-muted-foreground">{reminder.detail}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 sm:flex">
+                  <div className="grid grid-cols-3 gap-2 lg:flex">
                     <Button
                       variant="secondary"
                       size="sm"
                       className="text-xs"
                       disabled={!reminder.phone}
-                      onClick={() => sendReminder(reminder, "whatsapp")}
+                      onClick={() => prepareReminder(reminder, "whatsapp")}
                     >
                       <MessageCircle className="mr-1.5 h-3.5 w-3.5" /> WhatsApp
                     </Button>
@@ -286,7 +299,7 @@ function NotificationsPage() {
                       size="sm"
                       className="text-xs"
                       disabled={!reminder.phone}
-                      onClick={() => sendReminder(reminder, "sms")}
+                      onClick={() => prepareReminder(reminder, "sms")}
                     >
                       <Smartphone className="mr-1.5 h-3.5 w-3.5" /> SMS
                     </Button>
@@ -295,7 +308,7 @@ function NotificationsPage() {
                       size="sm"
                       className="text-xs"
                       disabled={!reminder.email}
-                      onClick={() => sendReminder(reminder, "email")}
+                      onClick={() => prepareReminder(reminder, "email")}
                     >
                       <Mail className="mr-1.5 h-3.5 w-3.5" /> Email
                     </Button>
@@ -319,7 +332,10 @@ function NotificationsPage() {
         </p>
       </Panel>
 
-      <Panel>
+      <Panel
+        title="Recent notifications"
+        description={`${items.length} alerts · ${unread.length} unread`}
+      >
         {items.length === 0 ? (
           <EmptyState
             title="You're all caught up"

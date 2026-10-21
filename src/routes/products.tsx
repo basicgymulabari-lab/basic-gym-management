@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Plus,
   Search,
@@ -30,7 +30,9 @@ import {
 } from "@/components/ui/select";
 import {
   addSalePayment,
+  addProductCategory,
   getCurrentSession,
+  renameProductCategory,
   trashProduct,
   saveProduct,
   sellProduct,
@@ -49,6 +51,7 @@ import {
 } from "@/lib/gym/selectors";
 import { InvoiceDialog, type InvoiceData } from "@/components/app/InvoiceDialog";
 import type { GymState, PaymentMethod, Product, ProductCategory, Sale } from "@/lib/gym/types";
+import { DEFAULT_PRODUCT_CATEGORIES } from "@/lib/gym/types";
 import {
   isPositiveMoneyAmount,
   isSafeMoneyAmount,
@@ -80,14 +83,6 @@ function saleInvoice(state: GymState, sale: Sale): InvoiceData {
     method: initialPayment?.method,
   };
 }
-
-const CATEGORIES: ProductCategory[] = [
-  "Supplements",
-  "Apparel",
-  "Accessories",
-  "Equipment",
-  "Beverages",
-];
 
 export const Route = createFileRoute("/products")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -129,8 +124,21 @@ function ProductsPage() {
   const [lockedFor, setLockedFor] = useState<Product | null>(null);
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
   const [collectFor, setCollectFor] = useState<Sale | null>(null);
-  const [detailFor, setDetailFor] = useState<Sale | null>(null);
+  const [productDetailsFor, setProductDetailsFor] = useState<Sale | null>(null);
   const [salesFilter, setSalesFilter] = useState<"all" | "paid" | "partial" | "unpaid">("all");
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const productCategories = useMemo(
+    () =>
+      state
+        ? Array.from(
+            new Set([
+              ...(state.productCategories ?? DEFAULT_PRODUCT_CATEGORIES),
+              ...state.products.map((product) => product.category),
+            ]),
+          )
+        : [...DEFAULT_PRODUCT_CATEGORIES],
+    [state],
+  );
 
   // Opening a pending walk-in payment notification lands here with ?sale=<id>.
   useEffect(() => {
@@ -162,7 +170,7 @@ function ProductsPage() {
   const cur = state.settings.currency;
   const low = lowStock(state);
   const live = liveProducts(state);
-  const availableCategories = CATEGORIES.filter((category) =>
+  const availableCategories = productCategories.filter((category) =>
     live.some((product) => product.category === category),
   );
   const stockValue = live.reduce((a, p) => a + p.stock * p.cost, 0);
@@ -184,130 +192,245 @@ function ProductsPage() {
         title="Products & Sales"
         subtitle="Supplements, merchandise and in-gym store operations"
         actions={
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setFormOpen(true);
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" /> Add Product
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => setCategoryManagerOpen(true)}>
+              Manage categories
+            </Button>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setFormOpen(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" /> Add Product
+            </Button>
+          </div>
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ["Products", String(live.length), Boxes],
-          ...(canViewProductCost
-            ? ([
-                ["Stock value", money(stockValue, cur), Boxes],
-                ["Sales profit", money(profitOfSales(state), cur), ShoppingCart],
-              ] as const)
-            : []),
-          ["Low stock", String(low.length), PackageX],
-        ].map(([label, value, Icon]) => {
-          const I = Icon as typeof Boxes;
-          return (
-            <div
-              key={label as string}
-              className="surface-panel flex items-center gap-4 rounded-2xl p-5"
-            >
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-gold/35 bg-gold/10 text-gold">
-                <I className="h-5 w-5" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                  {label as string}
-                </p>
-                <p className="truncate font-display text-2xl">{value as string}</p>
+      <div className="flex flex-col">
+        <div
+          data-testid="product-summary-metrics"
+          className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4"
+        >
+          {[
+            ["Products", String(live.length), Boxes],
+            ...(canViewProductCost
+              ? ([
+                  ["Stock value", money(stockValue, cur), Boxes],
+                  ["Sales profit", money(profitOfSales(state), cur), ShoppingCart],
+                ] as const)
+              : []),
+            ["Low stock", String(low.length), PackageX],
+          ].map(([label, value, Icon]) => {
+            const I = Icon as typeof Boxes;
+            return (
+              <div
+                key={label as string}
+                className="surface-panel flex min-w-0 flex-col items-start gap-2 rounded-2xl p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-5"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-gold/35 bg-gold/10 text-gold sm:h-11 sm:w-11">
+                  <I className="h-4 w-4 sm:h-5 sm:w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground sm:text-[11px] sm:tracking-[0.18em]">
+                    {label as string}
+                  </p>
+                  <p className="truncate font-display text-xl sm:text-2xl">{value as string}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div data-testid="product-search-panel" className="mb-6">
+          <Panel>
+            <div className="mb-5 grid gap-3 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="Search products"
+                  value={q}
+                  maxLength={60}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
+                {(["All", ...availableCategories] as const).map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setCategoryFilter(category)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      categoryFilter === category
+                        ? "border-gold/50 bg-gold/15 text-gold"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
               </div>
             </div>
-          );
-        })}
-      </div>
 
-      {low.length > 0 && (
-        <div className="mb-6 rounded-2xl border border-warning/40 bg-warning/10 p-4">
-          <p className="text-sm font-medium text-warning">Low stock alert</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {low.map((p) => `${p.name} (${p.stock} left)`).join(" · ")}
-          </p>
-        </div>
-      )}
-
-      <Panel className="mb-6">
-        <div className="mb-5 grid gap-3 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Search products"
-              value={q}
-              maxLength={60}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-            <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
-            {(["All", ...availableCategories] as const).map((category) => (
-              <button
-                key={category}
-                type="button"
-                onClick={() => setCategoryFilter(category)}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                  categoryFilter === category
-                    ? "border-gold/50 bg-gold/15 text-gold"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}
+            {low.length > 0 && (
+              <div
+                data-testid="product-low-stock-alert"
+                className="mb-5 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3"
               >
-                {category}
-              </button>
-            ))}
-          </div>
-        </div>
+                <p className="text-sm font-medium text-warning">Low stock alert</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {low.map((p) => `${p.name} (${p.stock} left)`).join(" · ")}
+                </p>
+              </div>
+            )}
 
-        {filtered.length === 0 ? (
-          <EmptyState title="No products found" hint="Try a different category or search term." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <th className="py-3">Product</th>
-                  <th className="py-3">Category</th>
-                  {canViewProductCost && <th className="py-3">Cost</th>}
-                  <th className="py-3">Price</th>
-                  <th className="py-3">Stock</th>
-                  <th className="py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr key={p.id} className="border-b border-border/50 hover:bg-secondary/40">
-                    <td className="py-3 font-medium">
-                      <span className="inline-flex items-center gap-1.5">
-                        {p.name}
-                        {p.locked && <Lock className="h-3.5 w-3.5 text-gold" aria-label="Locked" />}
-                      </span>
-                    </td>
-                    <td className="py-3 text-muted-foreground">{p.category}</td>
-                    {canViewProductCost && (
-                      <td className="py-3 text-muted-foreground">{money(p.cost, cur)}</td>
-                    )}
-                    <td className="py-3 text-gold">{money(p.price, cur)}</td>
-                    <td className="py-3">
-                      <span
-                        className={`font-medium ${p.stock <= p.lowStockAt ? "text-warning" : ""}`}
+            {filtered.length === 0 ? (
+              <EmptyState
+                title="No products found"
+                hint="Try a different category or search term."
+              />
+            ) : (
+              <>
+                <div className="hidden overflow-x-auto xl:block">
+                  <table className="w-full min-w-[860px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                        <th className="py-3">Product</th>
+                        <th className="py-3">Category</th>
+                        {canViewProductCost && <th className="py-3">Cost</th>}
+                        <th className="py-3">Price</th>
+                        <th className="py-3">Stock</th>
+                        <th className="py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((p) => (
+                        <tr key={p.id} className="border-b border-border/50 hover:bg-secondary/40">
+                          <td className="py-3 font-medium">
+                            <span className="inline-flex items-center gap-1.5">
+                              {p.name}
+                              {p.locked && (
+                                <Lock className="h-3.5 w-3.5 text-gold" aria-label="Locked" />
+                              )}
+                            </span>
+                          </td>
+                          <td className="py-3 text-muted-foreground">{p.category}</td>
+                          {canViewProductCost && (
+                            <td className="py-3 text-muted-foreground">{money(p.cost, cur)}</td>
+                          )}
+                          <td className="py-3 text-gold">{money(p.price, cur)}</td>
+                          <td className="py-3">
+                            <span
+                              className={`font-medium ${p.stock <= p.lowStockAt ? "text-warning" : ""}`}
+                            >
+                              {p.stock}
+                            </span>
+                          </td>
+
+                          <td className="py-3">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={p.stock < 1}
+                                onClick={() => setSellFor(p)}
+                              >
+                                <ShoppingCart className="mr-1.5 h-3.5 w-3.5" /> Sell
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                aria-label="Edit product"
+                                onClick={() => {
+                                  setEditing(p);
+                                  setFormOpen(true);
+                                }}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                aria-label="Delete product"
+                                onClick={() => (p.locked ? setLockedFor(p) : setTrashFor(p))}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <ul className="grid gap-3 sm:grid-cols-2 xl:hidden" aria-label="Products">
+                  {filtered.map((p) => (
+                    <li
+                      key={p.id}
+                      data-testid="product-responsive-card"
+                      className="min-w-0 rounded-xl border border-border bg-secondary/15 p-4"
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="break-words font-medium">
+                            {p.name}
+                            {p.locked && (
+                              <Lock
+                                className="ml-1.5 inline h-3.5 w-3.5 text-gold"
+                                aria-label="Locked"
+                              />
+                            )}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">{p.category}</p>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                            p.stock <= p.lowStockAt
+                              ? "border-warning/40 bg-warning/10 text-warning"
+                              : "border-border text-muted-foreground"
+                          }`}
+                        >
+                          {p.stock <= p.lowStockAt ? "Low stock" : "In stock"}
+                        </span>
+                      </div>
+                      <dl
+                        className={`mt-4 grid gap-3 ${canViewProductCost ? "grid-cols-3" : "grid-cols-2"}`}
                       >
-                        {p.stock}
-                      </span>
-                    </td>
-
-                    <td className="py-3">
-                      <div className="flex justify-end gap-1">
+                        {canViewProductCost && (
+                          <div>
+                            <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                              Cost
+                            </dt>
+                            <dd className="mt-1 text-sm">{money(p.cost, cur)}</dd>
+                          </div>
+                        )}
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                            Price
+                          </dt>
+                          <dd className="mt-1 text-sm text-gold">{money(p.price, cur)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                            Stock
+                          </dt>
+                          <dd
+                            className={`mt-1 text-sm font-medium ${p.stock <= p.lowStockAt ? "text-warning" : ""}`}
+                          >
+                            {p.stock}
+                          </dd>
+                        </div>
+                      </dl>
+                      <div className="mt-4 flex items-center gap-2 border-t border-border/70 pt-3">
                         <Button
                           size="sm"
                           variant="secondary"
+                          className="flex-1"
                           disabled={p.stock < 1}
                           onClick={() => setSellFor(p)}
                         >
@@ -316,8 +439,8 @@ function ProductsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
-                          aria-label="Edit product"
+                          className="h-9 w-9 shrink-0"
+                          aria-label={`Edit product ${p.name}`}
                           onClick={() => {
                             setEditing(p);
                             setFormOpen(true);
@@ -328,21 +451,21 @@ function ProductsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          aria-label="Delete product"
+                          className="h-9 w-9 shrink-0 text-destructive hover:text-destructive"
+                          aria-label={`Delete product ${p.name}`}
                           onClick={() => (p.locked ? setLockedFor(p) : setTrashFor(p))}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Panel>
+        </div>
+      </div>
 
       <Panel
         title="Recent Sales"
@@ -383,68 +506,89 @@ function ProductsPage() {
           />
         ) : (
           <ul className="divide-y divide-border/60">
-            {recentSales.map((s) => (
-              <li
-                key={s.id}
-                role="button"
-                tabIndex={0}
-                aria-label={`View sale details for ${s.productName}, purchased by ${s.buyer}`}
-                className="-mx-2 flex cursor-pointer items-center justify-between gap-4 rounded-lg px-2 py-3 transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-                onClick={() => setDetailFor(s)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setDetailFor(s);
-                  }
-                }}
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {s.qty} ×{" "}
-                    {state.products.find((p) => p.id === s.productId)?.name ?? s.productName}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {s.buyer} · {shortDate(s.date)} · {s.invoiceNo}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <div className="text-right">
-                    <p className="font-medium text-gold">{money(s.total, cur)}</p>
-                    {saleDue(state, s) > 0 && (
-                      <p className="text-xs text-warning">Due {money(saleDue(state, s), cur)}</p>
-                    )}
+            {recentSales.map((s) => {
+              const productName =
+                state.products.find((product) => product.id === s.productId)?.name ?? s.productName;
+              const buyerMember = state.members.find(
+                (member) => member.id === s.memberId && !member.deletedAt && !isWalkIn(member),
+              );
+              const due = saleDue(state, s);
+
+              return (
+                <li
+                  key={s.id}
+                  data-testid={`recent-sale-${s.id}`}
+                  className="-mx-2 flex items-center justify-between gap-4 rounded-lg px-2 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {s.qty} ×{" "}
+                      <button
+                        type="button"
+                        className="rounded-sm text-left hover:text-gold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                        aria-label={`View product details for ${productName}`}
+                        onClick={() => setProductDetailsFor(s)}
+                      >
+                        {productName}
+                      </button>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {buyerMember ? (
+                        <>
+                          <button
+                            type="button"
+                            className="rounded-sm no-underline hover:text-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                            aria-label={`Open member profile for ${buyerMember.name}`}
+                            onClick={() =>
+                              navigate({
+                                to: "/members/$memberId",
+                                params: { memberId: buyerMember.id },
+                                search: { tab: undefined },
+                              })
+                            }
+                          >
+                            {buyerMember.name}
+                          </button>
+                          {` · ${shortDate(s.date)} · ${s.invoiceNo}`}
+                        </>
+                      ) : (
+                        <>
+                          {s.buyer || "Walk-in"} · {shortDate(s.date)} · {s.invoiceNo}
+                        </>
+                      )}
+                    </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    aria-label="View invoice"
-                    title="View invoice"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setInvoice(saleInvoice(state, s));
-                    }}
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  {saleDue(state, s) > 0 && (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="text-right">
+                      <p className="font-medium text-gold">{money(s.total, cur)}</p>
+                      {due > 0 && <p className="text-xs text-warning">Due {money(due, cur)}</p>}
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-warning hover:text-warning"
-                      aria-label="Collect outstanding balance"
-                      title="Collect outstanding balance"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setCollectFor(s);
-                      }}
+                      className="h-8 w-8"
+                      aria-label="View invoice"
+                      title="View invoice"
+                      onClick={() => setInvoice(saleInvoice(state, s))}
                     >
-                      <Wallet className="h-4 w-4" />
+                      <Eye className="h-4 w-4" />
                     </Button>
-                  )}
-                </div>
-              </li>
-            ))}
+                    {due > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-warning hover:text-warning"
+                        aria-label="Collect outstanding balance"
+                        title="Collect outstanding balance"
+                        onClick={() => setCollectFor(s)}
+                      >
+                        <Wallet className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Panel>
@@ -459,7 +603,16 @@ function ProductsPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         product={editing}
+        categories={productCategories}
         canViewProductCost={canViewProductCost}
+      />
+      <ProductCategoryManager
+        open={categoryManagerOpen}
+        onOpenChange={setCategoryManagerOpen}
+        categories={productCategories}
+        onCategoryRenamed={(previous, next) => {
+          setCategoryFilter((current) => (current === previous ? next : current));
+        }}
       />
       <SellDialog
         product={sellFor}
@@ -474,17 +627,10 @@ function ProductsPage() {
           }
         }}
       />
-      <SaleDetailsDialog
-        sale={detailFor}
-        onClose={() => setDetailFor(null)}
-        onViewInvoice={(sale) => {
-          setDetailFor(null);
-          setInvoice(saleInvoice(state, sale));
-        }}
-        onCollect={(sale) => {
-          setDetailFor(null);
-          setCollectFor(sale);
-        }}
+      <ProductDetailsDialog
+        sale={productDetailsFor}
+        onClose={() => setProductDetailsFor(null)}
+        canViewProductCost={canViewProductCost}
       />
       <CollectSaleBalanceDialog sale={collectFor} onClose={() => setCollectFor(null)} />
 
@@ -543,132 +689,83 @@ function ProductsPage() {
   );
 }
 
-function SaleDetailsDialog({
+function ProductDetailsDialog({
   sale,
   onClose,
-  onViewInvoice,
-  onCollect,
+  canViewProductCost,
 }: {
   sale: Sale | null;
   onClose: () => void;
-  onViewInvoice: (sale: Sale) => void;
-  onCollect: (sale: Sale) => void;
+  canViewProductCost: boolean;
 }) {
   const state = useGym();
   if (!state || !sale) return null;
 
-  const member = sale.memberId
-    ? state.members.find((item) => item.id === sale.memberId)
-    : undefined;
-  const paid = salePaid(state, sale);
-  const due = saleDue(state, sale);
-  const discount = sale.discount ?? 0;
-  const original = sale.total + discount;
-  const status = due <= 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Unpaid";
-  const payments = state.payments
-    .filter((payment) => payment.saleId === sale.id)
-    .sort((a, b) => +new Date(b.date) - +new Date(a.date));
+  const product = state.products.find((item) => item.id === sale.productId);
   const cur = state.settings.currency;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="font-display text-2xl tracking-wide">Sale details</DialogTitle>
+          <DialogTitle className="font-display text-2xl tracking-wide">Product details</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-secondary/30 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="font-medium">
-                  {sale.qty} × {sale.productName}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {sale.invoiceNo} · {shortDate(sale.date)}
-                </p>
-              </div>
-              <span
-                className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-                  due <= 0
-                    ? "border-success/40 bg-success/10 text-success"
-                    : paid > 0
-                      ? "border-warning/40 bg-warning/10 text-warning"
-                      : "border-destructive/40 bg-destructive/10 text-destructive"
-                }`}
-              >
-                {status}
-              </span>
-            </div>
+            <p className="font-medium">{product?.name ?? sale.productName}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {product?.deletedAt ? "Archived product" : "Current product profile"}
+            </p>
           </div>
 
-          <div className="grid gap-4 rounded-xl border border-border p-4 text-sm sm:grid-cols-2">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Purchased by</p>
-              <p className="mt-1 font-medium">{member?.name ?? sale.buyer}</p>
-              {(member?.phone ?? sale.buyerPhone) && (
-                <p className="text-muted-foreground">{member?.phone ?? sale.buyerPhone}</p>
-              )}
-              {(member?.email ?? sale.buyerEmail) && (
-                <p className="break-all text-muted-foreground">
-                  {member?.email ?? sale.buyerEmail}
-                </p>
-              )}
-            </div>
-            <div className="space-y-1 sm:text-right">
-              <p className="flex justify-between gap-4 sm:justify-end">
-                <span className="text-muted-foreground">Original</span>
-                <span>{money(original, cur)}</span>
-              </p>
-              <p className="flex justify-between gap-4 sm:justify-end">
-                <span className="text-muted-foreground">Discount</span>
-                <span>{money(discount, cur)}</span>
-              </p>
-              <p className="flex justify-between gap-4 font-medium sm:justify-end">
-                <span>Final total</span>
-                <span>{money(sale.total, cur)}</span>
-              </p>
-              <p className="flex justify-between gap-4 text-success sm:justify-end">
-                <span>Paid</span>
-                <span>{money(paid, cur)}</span>
-              </p>
-              <p className="flex justify-between gap-4 text-warning sm:justify-end">
-                <span>Due</span>
-                <span>{money(due, cur)}</span>
-              </p>
-            </div>
+          <div className="grid gap-3 rounded-xl border border-border p-4 text-sm sm:grid-cols-2">
+            <ProductDetail label="Category" value={product?.category ?? "Not available"} />
+            <ProductDetail label="SKU" value={product?.sku || "Not set"} />
+            <ProductDetail
+              label="Selling price"
+              value={money(product?.price ?? sale.unitPrice, cur)}
+            />
+            <ProductDetail
+              label="Current stock"
+              value={
+                product ? (product.deletedAt ? "Archived" : String(product.stock)) : "Not available"
+              }
+            />
+            {canViewProductCost && product && (
+              <ProductDetail label="Cost price" value={money(product.cost, cur)} />
+            )}
           </div>
 
-          {payments.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
-                Payment history
+          <div className="rounded-xl border border-border/70 px-4 py-3 text-sm">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">This sale</p>
+            <p className="mt-1">
+              {sale.qty} unit{sale.qty === 1 ? "" : "s"} · {money(sale.total, cur)} ·{" "}
+              {shortDate(sale.date)}
+            </p>
+            {!product && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The original product record is unavailable; details above use the saved sale record.
               </p>
-              <div className="divide-y divide-border/60 rounded-xl border border-border px-4">
-                {payments.map((payment) => (
-                  <div key={payment.id} className="flex justify-between gap-4 py-2.5 text-sm">
-                    <span className="capitalize text-muted-foreground">
-                      {shortDate(payment.date)} · {payment.method}
-                    </span>
-                    <span className="font-medium">{money(payment.amount, cur)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="secondary" onClick={() => onViewInvoice(sale)}>
-              <Eye className="mr-2 h-4 w-4" /> View invoice
+            <Button variant="secondary" onClick={onClose}>
+              Close
             </Button>
-            {due > 0 && (
-              <Button onClick={() => onCollect(sale)}>
-                <Wallet className="mr-2 h-4 w-4" /> Collect balance
-              </Button>
-            )}
           </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ProductDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="break-words text-right font-medium">{value}</span>
+    </div>
   );
 }
 
@@ -765,20 +862,165 @@ function CollectSaleBalanceDialog({ sale, onClose }: { sale: Sale | null; onClos
   );
 }
 
+function ProductCategoryManager({
+  open,
+  onOpenChange,
+  categories,
+  onCategoryRenamed,
+}: {
+  open: boolean;
+  onOpenChange: (value: boolean) => void;
+  categories: ProductCategory[];
+  onCategoryRenamed: (previous: string, next: string) => void;
+}) {
+  const [newCategory, setNewCategory] = useState("");
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [editedName, setEditedName] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setNewCategory("");
+      setEditingCategory(null);
+      setEditedName("");
+    }
+  }, [open]);
+
+  function saveNewCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newCategory.trim();
+    if (name.length < 2 || name.length > 40) {
+      toast.error("Category names must be between 2 and 40 characters.");
+      return;
+    }
+    if (!addProductCategory(name)) {
+      toast.error("That category already exists or could not be saved.");
+      return;
+    }
+    toast.success(`${name} category added`);
+    setNewCategory("");
+  }
+
+  function saveRenamedCategory(previous: string) {
+    const next = editedName.trim();
+    if (next.length < 2 || next.length > 40) {
+      toast.error("Category names must be between 2 and 40 characters.");
+      return;
+    }
+    if (next === previous) {
+      setEditingCategory(null);
+      return;
+    }
+    if (!renameProductCategory(previous, next)) {
+      toast.error("That category already exists or could not be renamed.");
+      return;
+    }
+    onCategoryRenamed(previous, next);
+    setEditingCategory(null);
+    toast.success(`Category renamed to ${next}`);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl tracking-wide">
+            Manage product categories
+          </DialogTitle>
+        </DialogHeader>
+        <p className="-mt-2 text-sm text-muted-foreground">
+          Add categories or rename one. Renaming updates all products in that category.
+        </p>
+
+        <form onSubmit={saveNewCategory} className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={newCategory}
+            maxLength={40}
+            placeholder="New category name"
+            aria-label="New category name"
+            onChange={(event) => setNewCategory(event.target.value)}
+          />
+          <Button type="submit" className="shrink-0">
+            <Plus className="mr-2 h-4 w-4" /> Add category
+          </Button>
+        </form>
+
+        <div className="max-h-[min(50dvh,24rem)] space-y-2 overflow-y-auto pr-1">
+          {categories.map((category) => (
+            <div
+              key={category}
+              className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-secondary/20 p-3"
+            >
+              {editingCategory === category ? (
+                <>
+                  <Input
+                    value={editedName}
+                    maxLength={40}
+                    aria-label={`Rename category ${category}`}
+                    className="min-w-[10rem] flex-1"
+                    autoFocus
+                    onChange={(event) => setEditedName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        saveRenamedCategory(category);
+                      }
+                      if (event.key === "Escape") setEditingCategory(null);
+                    }}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={() => saveRenamedCategory(category)}>
+                      Save category
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setEditingCategory(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="min-w-0 truncate text-sm font-medium">{category}</span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    aria-label={`Edit category ${category}`}
+                    onClick={() => {
+                      setEditingCategory(category);
+                      setEditedName(category);
+                    }}
+                  >
+                    <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                  </Button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>
+            Done
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProductDialog({
   open,
   onOpenChange,
   product,
+  categories,
   canViewProductCost,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   product: Product | null;
+  categories: ProductCategory[];
   canViewProductCost: boolean;
 }) {
   const [form, setForm] = useState({
     name: "",
-    category: "Supplements" as ProductCategory,
+    category: (categories[0] ?? "Supplements") as ProductCategory,
     sku: "",
     cost: "",
     price: "",
@@ -791,7 +1033,7 @@ function ProductDialog({
     if (open) {
       setForm({
         name: product?.name ?? "",
-        category: product?.category ?? "Supplements",
+        category: product?.category ?? categories[0] ?? "Supplements",
         sku: product?.sku ?? "",
         cost: product ? String(product.cost) : "",
         price: product ? String(product.price) : "",
@@ -800,7 +1042,7 @@ function ProductDialog({
         locked: Boolean(product?.locked),
       });
     }
-  }, [open, product]);
+  }, [open, product, categories]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -830,7 +1072,7 @@ function ProductDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIES.map((c) => (
+                  {categories.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c}
                     </SelectItem>
@@ -920,7 +1162,9 @@ function ProductDialog({
                   !Number.isSafeInteger(lowStockAt) ||
                   lowStockAt < 0
                 ) {
-                  return toast.error("Stock and low-stock alert must be non-negative whole numbers.");
+                  return toast.error(
+                    "Stock and low-stock alert must be non-negative whole numbers.",
+                  );
                 }
                 const saved = saveProduct({
                   id: product?.id,
@@ -934,7 +1178,8 @@ function ProductDialog({
                   locked: form.locked,
                   deletedAt: product?.deletedAt ?? null,
                 });
-                if (!saved) return toast.error("The product details are invalid and were not saved.");
+                if (!saved)
+                  return toast.error("The product details are invalid and were not saved.");
                 toast.success(product ? "Product updated" : "Product added");
                 onOpenChange(false);
               }}
@@ -998,9 +1243,7 @@ function SellDialog({ product, onClose }: { product: Product | null; onClose: ()
   const paidNum = Number(paid);
   const paidEntered = paid.trim() !== "";
   const paidValid =
-    paidEntered &&
-    (paidNum === 0 || isPositiveMoneyAmount(paidNum)) &&
-    paidNum <= total;
+    paidEntered && (paidNum === 0 || isPositiveMoneyAmount(paidNum)) && paidNum <= total;
   const remaining = Math.max(0, subtractMoney(total, paidValid ? paidNum : 0));
   const isWalkIn = memberId === "walkin";
   const walkInValid =

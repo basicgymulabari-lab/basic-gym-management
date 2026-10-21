@@ -140,7 +140,8 @@ function leadScore(inquiry: Inquiry, plans: Plan[]) {
     inquiry.status
   ];
   const follow = followUpState(inquiry);
-  const urgency = follow === "overdue" ? 24 : follow === "today" ? 18 : follow === "upcoming" ? 8 : 0;
+  const urgency =
+    follow === "overdue" ? 24 : follow === "today" ? 18 : follow === "upcoming" ? 8 : 0;
   const profile = (inquiry.email ? 5 : 0) + (planValue(inquiry, plans) > 0 ? 5 : 0);
   return Math.min(100, priority + stage + urgency + profile);
 }
@@ -201,7 +202,8 @@ function InquiriesPage() {
       )
       .sort((a, b) => {
         if (sort === "recent") return +new Date(b.updatedAt) - +new Date(a.updatedAt);
-        if (sort === "value") return planValue(b, state?.plans ?? []) - planValue(a, state?.plans ?? []);
+        if (sort === "value")
+          return planValue(b, state?.plans ?? []) - planValue(a, state?.plans ?? []);
         const attention = { overdue: 0, today: 1, upcoming: 2, none: 3 };
         const difference = attention[followUpState(a)] - attention[followUpState(b)];
         return (
@@ -229,7 +231,9 @@ function InquiriesPage() {
     ? Math.max(0, Math.round(((open.length - overdue.length) / open.length) * 100))
     : 100;
   const averageScore = open.length
-    ? Math.round(open.reduce((sum, inquiry) => sum + leadScore(inquiry, state.plans), 0) / open.length)
+    ? Math.round(
+        open.reduce((sum, inquiry) => sum + leadScore(inquiry, state.plans), 0) / open.length,
+      )
     : 0;
   const sourceStats = SOURCE_OPTIONS.map((source) => {
     const list = inquiries.filter((inquiry) => inquiry.source === source.value);
@@ -256,7 +260,12 @@ function InquiriesPage() {
     const date = new Date();
     date.setDate(date.getDate() + 1);
     date.setHours(9, 0, 0, 0);
-    if (!updateInquiry(inquiry.id, { nextFollowUp: date.toISOString(), status: inquiry.status === "new" ? "contacted" : inquiry.status })) {
+    if (
+      !updateInquiry(inquiry.id, {
+        nextFollowUp: date.toISOString(),
+        status: inquiry.status === "new" ? "contacted" : inquiry.status,
+      })
+    ) {
       return toast.error("Follow-up could not be scheduled");
     }
     toast.success(`Follow-up scheduled tomorrow for ${inquiry.name}`);
@@ -265,10 +274,13 @@ function InquiriesPage() {
   const moveLeadToStage = (leadId: string, stage: InquiryStatus) => {
     const inquiry = inquiries.find((item) => item.id === leadId);
     if (!inquiry || inquiry.status === stage) return;
-    if (!updateInquiry(inquiry.id, {
-      status: stage,
-      nextFollowUp: ["converted", "lost"].includes(stage) ? null : inquiry.nextFollowUp,
-    })) return toast.error("Lead could not be updated");
+    if (
+      !updateInquiry(inquiry.id, {
+        status: stage,
+        nextFollowUp: ["converted", "lost"].includes(stage) ? null : inquiry.nextFollowUp,
+      })
+    )
+      return toast.error("Lead could not be updated");
     toast.success(`${inquiry.name} moved to ${statusLabel(stage)}`);
   };
 
@@ -293,7 +305,9 @@ function InquiriesPage() {
                 type="button"
                 onClick={() => changeView("pipeline")}
                 className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${
-                  view === "pipeline" ? "bg-background text-gold shadow-sm" : "text-muted-foreground"
+                  view === "pipeline"
+                    ? "bg-background text-gold shadow-sm"
+                    : "text-muted-foreground"
                 }`}
               >
                 <Columns3 className="mr-1.5 inline h-3.5 w-3.5" /> Pipeline
@@ -311,544 +325,827 @@ function InquiriesPage() {
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <LeadMetric
-          icon={BarChart3}
-          label="Open pipeline"
-          value={money(pipelineValue)}
-          hint={`${open.length} active opportunities`}
-        />
-        <LeadMetric
-          icon={TrendingUp}
-          label="Weighted forecast"
-          value={money(Math.round(weightedForecast))}
-          hint="Stage-probability forecast"
-          tone="success"
-        />
-        <LeadMetric
-          icon={Gauge}
-          label="Follow-up SLA"
-          value={`${followUpSla}%`}
-          hint={`${overdue.length} overdue · ${today.length} due today`}
-          tone={overdue.length ? "warning" : "success"}
-        />
-        <LeadMetric
-          icon={Target}
-          label="Conversion rate"
-          value={`${conversion}%`}
-          hint={`${converted} wins from ${inquiries.length} leads`}
-          tone="success"
-        />
-      </div>
-
-      <div className="mb-6 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-        <Panel title="CRM Intelligence" description="Live signals that tell you where revenue is at risk">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => setFilter("attention")}
-              className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-left transition-colors hover:bg-destructive/10"
-            >
-              <div className="flex items-center justify-between">
-                <span className="grid h-9 w-9 place-items-center rounded-lg border border-destructive/30 bg-destructive/10 text-destructive">
-                  <Clock3 className="h-4 w-4" />
-                </span>
-                <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <p className="mt-3 font-display text-2xl text-destructive">{overdue.length}</p>
-              <p className="text-xs font-medium">Overdue follow-ups</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">Revenue at immediate risk</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPriorityFilter("hot");
-                setFilter("all");
-              }}
-              className="rounded-xl border border-gold/25 bg-gold/5 p-4 text-left transition-colors hover:bg-gold/10"
-            >
-              <div className="flex items-center justify-between">
-                <span className="grid h-9 w-9 place-items-center rounded-lg border border-gold/30 bg-gold/10 text-gold">
-                  <Flame className="h-4 w-4" />
-                </span>
-                <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <p className="mt-3 font-display text-2xl text-gold">{hot.length}</p>
-              <p className="text-xs font-medium">Hot opportunities</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                {hotWithoutFollowUp} without a scheduled follow-up
-              </p>
-            </button>
-            <div className="rounded-xl border border-success/25 bg-success/5 p-4">
-              <div className="flex items-center justify-between">
-                <span className="grid h-9 w-9 place-items-center rounded-lg border border-success/30 bg-success/10 text-success">
-                  <Sparkles className="h-4 w-4" />
-                </span>
-                <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">AI-style score</span>
-              </div>
-              <p className="mt-3 font-display text-2xl text-success">{averageScore}/100</p>
-              <p className="text-xs font-medium">Average lead quality</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">Priority + stage + urgency + profile completeness</p>
-            </div>
-          </div>
-        </Panel>
-
-        <Panel title="Source Performance" description="Where your strongest opportunities originate">
-          {sourceStats.length ? (
-            <div className="space-y-3">
-              {sourceStats.map((source) => (
-                <div key={source.value} className="rounded-xl border border-border bg-secondary/20 px-3.5 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{source.label}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {source.count} leads · {source.wins} converted
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-gold">{source.rate}%</p>
-                      <p className="text-[10px] text-muted-foreground">{money(source.pipelineValue)}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
-                    <div
-                      className="h-full rounded-full bg-gold transition-[width]"
-                      style={{ width: `${Math.max(source.count ? 8 : 0, source.rate)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState title="No source data yet" hint="Lead sources will rank here as inquiries are added." />
-          )}
-        </Panel>
-      </div>
-
-      <Panel title="Pipeline Velocity" description="Opportunity volume, stage probability and open value by CRM stage" className="mb-6">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          {PIPELINE_STAGES.map((stage) => {
-            const stageLeads = inquiries.filter((inquiry) => inquiry.status === stage);
-            const stageValue = stageLeads
-              .filter(isOpenLead)
-              .reduce((sum, inquiry) => sum + planValue(inquiry, state.plans), 0);
-            const active = filter === stage;
-            return (
-              <button
-                key={stage}
-                type="button"
-                onClick={() => {
-                  setFilter(stage);
-                  changeView("table");
-                }}
-                className={`rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5 ${
-                  active ? "border-gold/60 bg-gold/10" : "border-border bg-secondary/20 hover:border-gold/30"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium">{statusLabel(stage)}</p>
-                  <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-                    {Math.round(STAGE_PROBABILITY[stage] * 100)}%
-                  </span>
-                </div>
-                <p className="mt-2 font-display text-2xl">{stageLeads.length}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {stage === "converted" || stage === "lost" ? "Closed stage" : `${money(stageValue)} open value`}
-                </p>
-              </button>
-            );
-          })}
+      <div className="flex min-w-0 flex-col">
+        <div
+          data-testid="inquiry-summary-metrics"
+          className="order-1 mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4"
+        >
+          <LeadMetric
+            icon={BarChart3}
+            label="Open pipeline"
+            value={money(pipelineValue)}
+            hint={`${open.length} active opportunities`}
+          />
+          <LeadMetric
+            icon={TrendingUp}
+            label="Weighted forecast"
+            value={money(Math.round(weightedForecast))}
+            hint="Stage-probability forecast"
+            tone="success"
+          />
+          <LeadMetric
+            icon={Gauge}
+            label="Follow-up SLA"
+            value={`${followUpSla}%`}
+            hint={`${overdue.length} overdue · ${today.length} due today`}
+            tone={overdue.length ? "warning" : "success"}
+          />
+          <LeadMetric
+            icon={Target}
+            label="Conversion rate"
+            value={`${conversion}%`}
+            hint={`${converted} wins from ${inquiries.length} leads`}
+            tone="success"
+          />
         </div>
-      </Panel>
 
-      <Panel>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 border-b border-border pb-4">
-            <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-center">
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { value: "all", label: `All · ${inquiries.length}` },
-                  {
-                    value: "attention",
-                    label: `Needs attention${attention.length ? ` · ${attention.length}` : ""}`,
-                  },
-                  ...STATUS_OPTIONS,
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setFilter(option.value as typeof filter)}
-                    className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                      filter === option.value
-                        ? "border-gold/50 bg-gold/15 text-gold"
-                        : "border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <div className="flex rounded-lg border border-border bg-secondary/40 p-1 sm:hidden">
-                  <button
-                    type="button"
-                    onClick={() => changeView("table")}
-                    className={`rounded-md p-1.5 ${view === "table" ? "bg-background text-gold" : "text-muted-foreground"}`}
-                    title="List view"
-                  >
-                    <LayoutList className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => changeView("pipeline")}
-                    className={`rounded-md p-1.5 ${view === "pipeline" ? "bg-background text-gold" : "text-muted-foreground"}`}
-                    title="Pipeline view"
-                  >
-                    <Columns3 className="h-4 w-4" />
-                  </button>
+        <div className="order-2 flex min-w-0 flex-col xl:order-2">
+          <div className="order-2 mb-6 grid gap-6 xl:order-2 xl:grid-cols-[1.35fr_0.65fr]">
+            <Panel
+              title="CRM Intelligence"
+              description="Live signals that tell you where revenue is at risk"
+            >
+              <div className="grid gap-3 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => setFilter("attention")}
+                  className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-left transition-colors hover:bg-destructive/10"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="grid h-9 w-9 place-items-center rounded-lg border border-destructive/30 bg-destructive/10 text-destructive">
+                      <Clock3 className="h-4 w-4" />
+                    </span>
+                    <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <p className="mt-3 font-display text-2xl text-destructive">{overdue.length}</p>
+                  <p className="text-xs font-medium">Overdue follow-ups</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Revenue at immediate risk
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriorityFilter("hot");
+                    setFilter("all");
+                  }}
+                  className="rounded-xl border border-gold/25 bg-gold/5 p-4 text-left transition-colors hover:bg-gold/10"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="grid h-9 w-9 place-items-center rounded-lg border border-gold/30 bg-gold/10 text-gold">
+                      <Flame className="h-4 w-4" />
+                    </span>
+                    <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <p className="mt-3 font-display text-2xl text-gold">{hot.length}</p>
+                  <p className="text-xs font-medium">Hot opportunities</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {hotWithoutFollowUp} without a scheduled follow-up
+                  </p>
+                </button>
+                <div className="rounded-xl border border-success/25 bg-success/5 p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="grid h-9 w-9 place-items-center rounded-lg border border-success/30 bg-success/10 text-success">
+                      <Sparkles className="h-4 w-4" />
+                    </span>
+                    <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                      AI-style score
+                    </span>
+                  </div>
+                  <p className="mt-3 font-display text-2xl text-success">{averageScore}/100</p>
+                  <p className="text-xs font-medium">Average lead quality</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Priority + stage + urgency + profile completeness
+                  </p>
                 </div>
-                <div className="relative min-w-0 flex-1 xl:w-80">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search leads, phone, source or interest"
-                    className="pl-9"
-                  />
-                </div>
               </div>
-            </div>
+            </Panel>
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Priority</span>
-                {(["all", "hot", "warm", "cold"] as const).map((priority) => (
-                  <button
-                    key={priority}
-                    type="button"
-                    onClick={() => setPriorityFilter(priority)}
-                    className={`rounded-md px-2.5 py-1 text-xs capitalize ${
-                      priorityFilter === priority
-                        ? "bg-secondary text-foreground"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {priority}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Sort</span>
-                <Select value={sort} onValueChange={(value) => setSort(value as typeof sort)}>
-                  <SelectTrigger className="h-8 w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="smart">Smart priority</SelectItem>
-                    <SelectItem value="recent">Recent activity</SelectItem>
-                    <SelectItem value="value">Opportunity value</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          {filtered.length === 0 ? (
-            <EmptyState
-              title="No inquiries found"
-              hint={inquiries.length ? "Try another status, priority or search." : "Add your first gym lead."}
-            />
-          ) : view === "pipeline" ? (
-            <div className="overflow-x-auto pb-2">
-              <div className="mb-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-                <GripVertical className="h-3.5 w-3.5 text-gold" />
-                Drag a lead card and drop it into another stage to update the pipeline.
-              </div>
-              <div className="flex min-w-max gap-4">
-                {PIPELINE_STAGES.map((stage) => {
-                  const stageLeads = filtered.filter((inquiry) => inquiry.status === stage);
-                  return (
-                    <section
-                      key={stage}
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = "move";
-                        setDragOverStage(stage);
-                      }}
-                      onDragEnter={(event) => {
-                        event.preventDefault();
-                        setDragOverStage(stage);
-                      }}
-                      onDragLeave={(event) => {
-                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                          setDragOverStage((current) => (current === stage ? null : current));
-                        }
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        const leadId = draggingLeadId ?? event.dataTransfer.getData("text/plain");
-                        if (leadId) moveLeadToStage(leadId, stage);
-                        setDraggingLeadId(null);
-                        setDragOverStage(null);
-                      }}
-                      className={`w-[300px] rounded-2xl border p-3 transition-all duration-150 ${
-                        dragOverStage === stage && draggingLeadId
-                          ? "border-gold/70 bg-gold/5 shadow-[0_0_0_1px_rgba(212,175,55,0.15)]"
-                          : "border-border bg-secondary/10"
-                      }`}
+            <Panel
+              title="Source Performance"
+              description="Where your strongest opportunities originate"
+            >
+              {sourceStats.length ? (
+                <div className="space-y-3">
+                  {sourceStats.map((source) => (
+                    <div
+                      key={source.value}
+                      className="rounded-xl border border-border bg-secondary/20 px-3.5 py-3"
                     >
-                      <div className="mb-3 flex items-center justify-between gap-2 px-1">
-                        <div>
-                          <p className="text-sm font-semibold">{statusLabel(stage)}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {stageLeads.length} {stageLeads.length === 1 ? "lead" : "leads"}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{source.label}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {source.count} leads · {source.wins} converted
                           </p>
                         </div>
-                        <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground">
-                          {Math.round(STAGE_PROBABILITY[stage] * 100)}%
-                        </span>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-gold">{source.rate}%</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {money(source.pipelineValue)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="space-y-2.5">
-                        {stageLeads.length ? (
-                          stageLeads.map((inquiry) => {
-                            const score = leadScore(inquiry, state.plans);
-                            const followUp = followUpState(inquiry);
-                            const value = planValue(inquiry, state.plans);
-                            return (
-                              <article
-                                key={inquiry.id}
-                                draggable
-                                onDragStart={(event) => {
-                                  setDraggingLeadId(inquiry.id);
-                                  event.dataTransfer.effectAllowed = "move";
-                                  event.dataTransfer.setData("text/plain", inquiry.id);
-                                }}
-                                onDragEnd={() => {
-                                  setDraggingLeadId(null);
-                                  setDragOverStage(null);
-                                }}
-                                className={`group cursor-grab rounded-xl border border-border bg-card p-3 shadow-sm transition-all active:cursor-grabbing ${
-                                  draggingLeadId === inquiry.id ? "scale-[0.98] opacity-45" : "hover:border-gold/35"
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-3">
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className="h-full rounded-full bg-gold transition-[width]"
+                          style={{ width: `${Math.max(source.count ? 8 : 0, source.rate)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  title="No source data yet"
+                  hint="Lead sources will rank here as inquiries are added."
+                />
+              )}
+            </Panel>
+          </div>
+
+          <Panel
+            title="Pipeline Velocity"
+            description="Opportunity volume, stage probability and open value by CRM stage"
+            className="order-3 mb-6 xl:order-3"
+          >
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+              {PIPELINE_STAGES.map((stage) => {
+                const stageLeads = inquiries.filter((inquiry) => inquiry.status === stage);
+                const stageValue = stageLeads
+                  .filter(isOpenLead)
+                  .reduce((sum, inquiry) => sum + planValue(inquiry, state.plans), 0);
+                const active = filter === stage;
+                return (
+                  <button
+                    key={stage}
+                    type="button"
+                    onClick={() => {
+                      setFilter(stage);
+                      changeView("table");
+                    }}
+                    className={`rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5 ${
+                      active
+                        ? "border-gold/60 bg-gold/10"
+                        : "border-border bg-secondary/20 hover:border-gold/30"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium">{statusLabel(stage)}</p>
+                      <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+                        {Math.round(STAGE_PROBABILITY[stage] * 100)}%
+                      </span>
+                    </div>
+                    <p className="mt-2 font-display text-2xl">{stageLeads.length}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {stage === "converted" || stage === "lost"
+                        ? "Closed stage"
+                        : `${money(stageValue)} open value`}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </Panel>
+
+          <Panel className="order-1 mb-6 xl:order-1">
+            <div data-testid="inquiry-results-panel" className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 border-b border-border pb-4">
+                <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-center">
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { value: "all", label: `All · ${inquiries.length}` },
+                      {
+                        value: "attention",
+                        label: `Needs attention${attention.length ? ` · ${attention.length}` : ""}`,
+                      },
+                      ...STATUS_OPTIONS,
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => setFilter(option.value as typeof filter)}
+                        className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                          filter === option.value
+                            ? "border-gold/50 bg-gold/15 text-gold"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="relative min-w-0 w-full sm:flex-1 sm:w-auto xl:w-80">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="Search leads, phone, source or interest"
+                        className="w-full pl-9"
+                      />
+                    </div>
+                    <div className="flex w-full rounded-lg border border-border bg-secondary/40 p-1 sm:hidden">
+                      <button
+                        type="button"
+                        onClick={() => changeView("table")}
+                        className={`flex-1 rounded-md px-2 py-1.5 text-[11px] ${view === "table" ? "bg-background text-gold" : "text-muted-foreground"}`}
+                        aria-label="List view"
+                        aria-pressed={view === "table"}
+                      >
+                        <LayoutList className="mr-1 inline h-3.5 w-3.5" />
+                        List
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => changeView("pipeline")}
+                        className={`flex-1 rounded-md px-2 py-1.5 text-[11px] ${view === "pipeline" ? "bg-background text-gold" : "text-muted-foreground"}`}
+                        aria-label="Pipeline view"
+                        aria-pressed={view === "pipeline"}
+                      >
+                        <Columns3 className="mr-1 inline h-3.5 w-3.5" />
+                        Pipeline
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                      Priority
+                    </span>
+                    {(["all", "hot", "warm", "cold"] as const).map((priority) => (
+                      <button
+                        key={priority}
+                        type="button"
+                        onClick={() => setPriorityFilter(priority)}
+                        className={`rounded-md px-2.5 py-1 text-xs capitalize ${
+                          priorityFilter === priority
+                            ? "bg-secondary text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {priority}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                      Sort
+                    </span>
+                    <Select value={sort} onValueChange={(value) => setSort(value as typeof sort)}>
+                      <SelectTrigger className="h-8 w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="smart">Smart priority</SelectItem>
+                        <SelectItem value="recent">Recent activity</SelectItem>
+                        <SelectItem value="value">Opportunity value</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {filtered.length === 0 ? (
+                <EmptyState
+                  title="No inquiries found"
+                  hint={
+                    inquiries.length
+                      ? "Try another status, priority or search."
+                      : "Add your first gym lead."
+                  }
+                />
+              ) : view === "pipeline" ? (
+                <div className="overflow-x-auto pb-2">
+                  <div className="mb-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <GripVertical className="h-3.5 w-3.5 text-gold" />
+                    Drag a lead card and drop it into another stage to update the pipeline.
+                  </div>
+                  <div className="flex min-w-max gap-4">
+                    {PIPELINE_STAGES.map((stage) => {
+                      const stageLeads = filtered.filter((inquiry) => inquiry.status === stage);
+                      return (
+                        <section
+                          key={stage}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            setDragOverStage(stage);
+                          }}
+                          onDragEnter={(event) => {
+                            event.preventDefault();
+                            setDragOverStage(stage);
+                          }}
+                          onDragLeave={(event) => {
+                            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                              setDragOverStage((current) => (current === stage ? null : current));
+                            }
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const leadId =
+                              draggingLeadId ?? event.dataTransfer.getData("text/plain");
+                            if (leadId) moveLeadToStage(leadId, stage);
+                            setDraggingLeadId(null);
+                            setDragOverStage(null);
+                          }}
+                          className={`w-[300px] rounded-2xl border p-3 transition-all duration-150 ${
+                            dragOverStage === stage && draggingLeadId
+                              ? "border-gold/70 bg-gold/5 shadow-[0_0_0_1px_rgba(212,175,55,0.15)]"
+                              : "border-border bg-secondary/10"
+                          }`}
+                        >
+                          <div className="mb-3 flex items-center justify-between gap-2 px-1">
+                            <div>
+                              <p className="text-sm font-semibold">{statusLabel(stage)}</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {stageLeads.length} {stageLeads.length === 1 ? "lead" : "leads"}
+                              </p>
+                            </div>
+                            <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground">
+                              {Math.round(STAGE_PROBABILITY[stage] * 100)}%
+                            </span>
+                          </div>
+                          <div className="space-y-2.5">
+                            {stageLeads.length ? (
+                              stageLeads.map((inquiry) => {
+                                const score = leadScore(inquiry, state.plans);
+                                const followUp = followUpState(inquiry);
+                                const value = planValue(inquiry, state.plans);
+                                return (
+                                  <article
+                                    key={inquiry.id}
+                                    draggable
+                                    onDragStart={(event) => {
+                                      setDraggingLeadId(inquiry.id);
+                                      event.dataTransfer.effectAllowed = "move";
+                                      event.dataTransfer.setData("text/plain", inquiry.id);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggingLeadId(null);
+                                      setDragOverStage(null);
+                                    }}
+                                    className={`group cursor-grab rounded-xl border border-border bg-card p-3 shadow-sm transition-all active:cursor-grabbing ${
+                                      draggingLeadId === inquiry.id
+                                        ? "scale-[0.98] opacity-45"
+                                        : "hover:border-gold/35"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
+                                          <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-70 transition group-hover:text-gold" />
+                                          <span className="truncate">{inquiry.name}</span>
+                                        </p>
+                                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                          {inquiry.interest}
+                                        </p>
+                                      </div>
+                                      <LeadScore score={score} />
+                                    </div>
+                                    <div className="mt-3 flex items-center justify-between gap-2">
+                                      <PriorityBadge priority={inquiry.priority} />
+                                      <span className="text-xs font-medium text-gold">
+                                        {value ? money(value) : "—"}
+                                      </span>
+                                    </div>
+                                    <div className="mt-3 rounded-lg bg-secondary/40 px-2.5 py-2">
+                                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                                        <span className="text-muted-foreground">Next action</span>
+                                        <span
+                                          className={
+                                            followUp === "overdue"
+                                              ? "font-medium text-destructive"
+                                              : followUp === "today"
+                                                ? "font-medium text-gold"
+                                                : "text-muted-foreground"
+                                          }
+                                        >
+                                          {inquiry.nextFollowUp && isOpenLead(inquiry)
+                                            ? shortDate(inquiry.nextFollowUp)
+                                            : "Not scheduled"}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    {inquiry.notes && (
+                                      <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                                        {inquiry.notes}
+                                      </p>
+                                    )}
+                                    <div className="mt-3 flex items-center gap-1 border-t border-border pt-2.5">
+                                      <Button
+                                        asChild
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        title="Call lead"
+                                      >
+                                        <a href={`tel:${inquiry.phone}`}>
+                                          <Phone className="h-3.5 w-3.5" />
+                                        </a>
+                                      </Button>
+                                      {isOpenLead(inquiry) && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-8 px-2 text-[11px]"
+                                          onClick={() => scheduleTomorrow(inquiry)}
+                                        >
+                                          <CalendarClock className="mr-1 h-3.5 w-3.5" /> Tomorrow
+                                        </Button>
+                                      )}
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="ml-auto h-8 w-8"
+                                        title="Open lead"
+                                        onClick={() => {
+                                          setEditing(inquiry);
+                                          setFormOpen(true);
+                                        }}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </article>
+                                );
+                              })
+                            ) : (
+                              <div className="rounded-xl border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">
+                                No leads in this stage
+                              </div>
+                            )}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div
+                    data-testid="inquiry-desktop-table-wrapper"
+                    className="hidden overflow-x-auto 2xl:block"
+                  >
+                    <table className="w-full min-w-[1060px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                          <th className="px-3 py-3 font-medium">Lead</th>
+                          <th className="px-3 py-3 font-medium">CRM score</th>
+                          <th className="px-3 py-3 font-medium">Opportunity</th>
+                          <th className="px-3 py-3 font-medium">Source</th>
+                          <th className="px-3 py-3 font-medium">Stage</th>
+                          <th className="px-3 py-3 font-medium">Next action</th>
+                          <th className="px-3 py-3 font-medium">Activity</th>
+                          <th className="px-3 py-3 text-right font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((inquiry) => {
+                          const followUp = followUpState(inquiry);
+                          const score = leadScore(inquiry, state.plans);
+                          const value = planValue(inquiry, state.plans);
+                          const age = activityAgeDays(inquiry);
+                          return (
+                            <tr
+                              key={inquiry.id}
+                              className="border-b border-border/70 last:border-0 transition-colors hover:bg-secondary/20"
+                            >
+                              <td className="px-3 py-4">
+                                <div className="flex items-center gap-3">
+                                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-gold/35 bg-gold/5 text-xs font-semibold text-gold">
+                                    {initials(inquiry.name)}
+                                  </span>
                                   <div className="min-w-0">
-                                    <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
-                                      <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-70 transition group-hover:text-gold" />
-                                      <span className="truncate">{inquiry.name}</span>
-                                    </p>
-                                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{inquiry.interest}</p>
+                                    <div className="flex items-center gap-2">
+                                      <p className="truncate font-medium">{inquiry.name}</p>
+                                      <PriorityBadge priority={inquiry.priority} compact />
+                                    </div>
+                                    <a
+                                      href={`tel:${inquiry.phone}`}
+                                      className="block text-xs text-muted-foreground hover:text-gold"
+                                    >
+                                      {inquiry.phone}
+                                    </a>
+                                    {inquiry.email && (
+                                      <a
+                                        href={`mailto:${inquiry.email}`}
+                                        className="block max-w-52 truncate text-[11px] text-muted-foreground hover:text-gold"
+                                      >
+                                        {inquiry.email}
+                                      </a>
+                                    )}
                                   </div>
-                                  <LeadScore score={score} />
                                 </div>
-                                <div className="mt-3 flex items-center justify-between gap-2">
-                                  <PriorityBadge priority={inquiry.priority} />
-                                  <span className="text-xs font-medium text-gold">{value ? money(value) : "—"}</span>
-                                </div>
-                                <div className="mt-3 rounded-lg bg-secondary/40 px-2.5 py-2">
-                                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                                    <span className="text-muted-foreground">Next action</span>
-                                    <span
+                              </td>
+                              <td className="px-3 py-4">
+                                <LeadScore score={score} showLabel />
+                              </td>
+                              <td className="px-3 py-4">
+                                <p className="font-medium">{inquiry.interest}</p>
+                                <p className="text-xs text-gold">
+                                  {value ? money(value) : "Unpriced interest"}
+                                </p>
+                              </td>
+                              <td className="px-3 py-4 text-muted-foreground">
+                                {sourceLabel(inquiry.source)}
+                              </td>
+                              <td className="px-3 py-4">
+                                <Select
+                                  value={inquiry.status}
+                                  onValueChange={(value) => {
+                                    if (
+                                      !updateInquiry(inquiry.id, {
+                                        status: value as InquiryStatus,
+                                        nextFollowUp: ["converted", "lost"].includes(value)
+                                          ? null
+                                          : inquiry.nextFollowUp,
+                                      })
+                                    )
+                                      return toast.error("Lead could not be updated");
+                                    toast.success(
+                                      `Lead moved to ${statusLabel(value as InquiryStatus)}`,
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 w-36">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {STATUS_OPTIONS.map((option) => (
+                                      <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="px-3 py-4">
+                                {inquiry.nextFollowUp && isOpenLead(inquiry) ? (
+                                  <div>
+                                    <p
                                       className={
                                         followUp === "overdue"
                                           ? "font-medium text-destructive"
                                           : followUp === "today"
                                             ? "font-medium text-gold"
-                                            : "text-muted-foreground"
+                                            : "font-medium"
                                       }
                                     >
-                                      {inquiry.nextFollowUp && isOpenLead(inquiry)
-                                        ? shortDate(inquiry.nextFollowUp)
-                                        : "Not scheduled"}
-                                    </span>
+                                      {shortDate(inquiry.nextFollowUp)}
+                                    </p>
+                                    <p
+                                      className={`text-[10px] uppercase tracking-wider ${
+                                        followUp === "overdue"
+                                          ? "text-destructive"
+                                          : "text-muted-foreground"
+                                      }`}
+                                    >
+                                      {followUp}
+                                    </p>
+                                  </div>
+                                ) : isOpenLead(inquiry) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => scheduleTomorrow(inquiry)}
+                                    className="text-xs font-medium text-gold hover:underline"
+                                  >
+                                    + Schedule follow-up
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Closed</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-4">
+                                <div className="flex items-center gap-2">
+                                  {age === 0 ? (
+                                    <CheckCircle2 className="h-4 w-4 text-success" />
+                                  ) : (
+                                    <Clock3
+                                      className={`h-4 w-4 ${age >= 7 ? "text-warning" : "text-muted-foreground"}`}
+                                    />
+                                  )}
+                                  <div>
+                                    <p className="text-xs">
+                                      {age === 0 ? "Updated today" : `${age}d since update`}
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Added {shortDate(inquiry.createdAt)}
+                                    </p>
                                   </div>
                                 </div>
-                                {inquiry.notes && (
-                                  <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
-                                    {inquiry.notes}
-                                  </p>
-                                )}
-                                <div className="mt-3 flex items-center gap-1 border-t border-border pt-2.5">
-                                  <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Call lead">
+                              </td>
+                              <td className="px-2 py-4" data-testid="inquiry-actions-cell">
+                                <div className="flex justify-end gap-0.5">
+                                  <Button
+                                    asChild
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    title="Call lead"
+                                  >
                                     <a href={`tel:${inquiry.phone}`}>
-                                      <Phone className="h-3.5 w-3.5" />
+                                      <Phone className="h-4 w-4" />
                                     </a>
                                   </Button>
-                                  {isOpenLead(inquiry) && (
+                                  {inquiry.email && (
                                     <Button
+                                      asChild
                                       variant="ghost"
-                                      size="sm"
-                                      className="h-8 px-2 text-[11px]"
-                                      onClick={() => scheduleTomorrow(inquiry)}
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      title="Email lead"
                                     >
-                                      <CalendarClock className="mr-1 h-3.5 w-3.5" /> Tomorrow
+                                      <a href={`mailto:${inquiry.email}`}>
+                                        <Mail className="h-4 w-4" />
+                                      </a>
                                     </Button>
                                   )}
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="ml-auto h-8 w-8"
-                                    title="Open lead"
+                                    className="h-8 w-8"
+                                    title="Edit inquiry"
                                     onClick={() => {
                                       setEditing(inquiry);
                                       setFormOpen(true);
                                     }}
                                   >
-                                    <Pencil className="h-3.5 w-3.5" />
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                    title="Delete inquiry"
+                                    onClick={() => setRemoving(inquiry)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
-                              </article>
-                            );
-                          })
-                        ) : (
-                          <div className="rounded-xl border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">
-                            No leads in this stage
-                          </div>
-                        )}
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                    <th className="px-3 py-3 font-medium">Lead</th>
-                    <th className="px-3 py-3 font-medium">CRM score</th>
-                    <th className="px-3 py-3 font-medium">Opportunity</th>
-                    <th className="px-3 py-3 font-medium">Source</th>
-                    <th className="px-3 py-3 font-medium">Stage</th>
-                    <th className="px-3 py-3 font-medium">Next action</th>
-                    <th className="px-3 py-3 font-medium">Activity</th>
-                    <th className="px-3 py-3 text-right font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((inquiry) => {
-                    const followUp = followUpState(inquiry);
-                    const score = leadScore(inquiry, state.plans);
-                    const value = planValue(inquiry, state.plans);
-                    const age = activityAgeDays(inquiry);
-                    return (
-                      <tr
-                        key={inquiry.id}
-                        className="border-b border-border/70 last:border-0 transition-colors hover:bg-secondary/20"
-                      >
-                        <td className="px-3 py-4">
-                          <div className="flex items-center gap-3">
-                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-gold/35 bg-gold/5 text-xs font-semibold text-gold">
-                              {initials(inquiry.name)}
-                            </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <ul className="grid gap-3 sm:grid-cols-2 2xl:hidden" aria-label="Inquiry list">
+                    {filtered.map((inquiry) => {
+                      const followUp = followUpState(inquiry);
+                      const score = leadScore(inquiry, state.plans);
+                      const value = planValue(inquiry, state.plans);
+                      const age = activityAgeDays(inquiry);
+                      return (
+                        <li
+                          key={inquiry.id}
+                          data-testid="inquiry-responsive-card"
+                          className="min-w-0 rounded-xl border border-border bg-secondary/15 p-4"
+                        >
+                          <div className="flex min-w-0 items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="truncate font-medium">{inquiry.name}</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="break-words font-semibold">{inquiry.name}</p>
                                 <PriorityBadge priority={inquiry.priority} compact />
                               </div>
-                              <a href={`tel:${inquiry.phone}`} className="block text-xs text-muted-foreground hover:text-gold">
+                              <a
+                                href={`tel:${inquiry.phone}`}
+                                className="mt-1 block text-xs text-muted-foreground hover:text-gold"
+                              >
                                 {inquiry.phone}
                               </a>
                               {inquiry.email && (
                                 <a
                                   href={`mailto:${inquiry.email}`}
-                                  className="block max-w-52 truncate text-[11px] text-muted-foreground hover:text-gold"
+                                  className="mt-0.5 block break-all text-xs text-muted-foreground hover:text-gold"
                                 >
                                   {inquiry.email}
                                 </a>
                               )}
                             </div>
+                            <LeadScore score={score} />
                           </div>
-                        </td>
-                        <td className="px-3 py-4">
-                          <LeadScore score={score} showLabel />
-                        </td>
-                        <td className="px-3 py-4">
-                          <p className="font-medium">{inquiry.interest}</p>
-                          <p className="text-xs text-gold">{value ? money(value) : "Unpriced interest"}</p>
-                        </td>
-                        <td className="px-3 py-4 text-muted-foreground">{sourceLabel(inquiry.source)}</td>
-                        <td className="px-3 py-4">
-                          <Select
-                            value={inquiry.status}
-                            onValueChange={(value) => {
-                              if (!updateInquiry(inquiry.id, {
-                                status: value as InquiryStatus,
-                                nextFollowUp: ["converted", "lost"].includes(value)
-                                  ? null
-                                  : inquiry.nextFollowUp,
-                              })) return toast.error("Lead could not be updated");
-                              toast.success(`Lead moved to ${statusLabel(value as InquiryStatus)}`);
-                            }}
-                          >
-                            <SelectTrigger className="h-8 w-36">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {STATUS_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        <td className="px-3 py-4">
-                          {inquiry.nextFollowUp && isOpenLead(inquiry) ? (
-                            <div>
-                              <p
-                                className={
-                                  followUp === "overdue"
-                                    ? "font-medium text-destructive"
-                                    : followUp === "today"
-                                      ? "font-medium text-gold"
-                                      : "font-medium"
-                                }
-                              >
-                                {shortDate(inquiry.nextFollowUp)}
-                              </p>
-                              <p
-                                className={`text-[10px] uppercase tracking-wider ${
-                                  followUp === "overdue" ? "text-destructive" : "text-muted-foreground"
-                                }`}
-                              >
-                                {followUp}
-                              </p>
+
+                          <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border/70 pt-3">
+                            <div className="col-span-2 min-w-0">
+                              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Interest · opportunity
+                              </dt>
+                              <dd className="mt-1 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 text-sm">
+                                <span className="break-words">{inquiry.interest}</span>
+                                <span className="font-medium text-gold">
+                                  {value ? money(value) : "Unpriced interest"}
+                                </span>
+                              </dd>
                             </div>
-                          ) : isOpenLead(inquiry) ? (
-                            <button
-                              type="button"
-                              onClick={() => scheduleTomorrow(inquiry)}
-                              className="text-xs font-medium text-gold hover:underline"
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Source
+                              </dt>
+                              <dd className="mt-1 text-sm">{sourceLabel(inquiry.source)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Stage
+                              </dt>
+                              <dd className="mt-1">
+                                <Select
+                                  value={inquiry.status}
+                                  onValueChange={(nextStatus) => {
+                                    if (
+                                      !updateInquiry(inquiry.id, {
+                                        status: nextStatus as InquiryStatus,
+                                        nextFollowUp: ["converted", "lost"].includes(nextStatus)
+                                          ? null
+                                          : inquiry.nextFollowUp,
+                                      })
+                                    )
+                                      return toast.error("Lead could not be updated");
+                                    toast.success(
+                                      `Lead moved to ${statusLabel(nextStatus as InquiryStatus)}`,
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger className="h-9 w-full max-w-full text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {STATUS_OPTIONS.map((option) => (
+                                      <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Next follow-up
+                              </dt>
+                              <dd className="mt-1">
+                                {inquiry.nextFollowUp && isOpenLead(inquiry) ? (
+                                  <>
+                                    <p
+                                      className={`text-sm font-medium ${followUp === "overdue" ? "text-destructive" : followUp === "today" ? "text-gold" : ""}`}
+                                    >
+                                      {shortDate(inquiry.nextFollowUp)}
+                                    </p>
+                                    <p
+                                      className={`text-[10px] uppercase tracking-wider ${followUp === "overdue" ? "text-destructive" : "text-muted-foreground"}`}
+                                    >
+                                      {followUp}
+                                    </p>
+                                  </>
+                                ) : isOpenLead(inquiry) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => scheduleTomorrow(inquiry)}
+                                    className="text-xs font-medium text-gold hover:underline"
+                                  >
+                                    + Schedule follow-up
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Closed</span>
+                                )}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Activity
+                              </dt>
+                              <dd className="mt-1 text-xs">
+                                {age === 0 ? "Updated today" : `${age}d since update`}
+                                <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                                  Added {shortDate(inquiry.createdAt)}
+                                </span>
+                              </dd>
+                            </div>
+                          </dl>
+
+                          <div className="mt-3 flex items-center gap-1 border-t border-border/70 pt-2">
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="icon"
+                              className="h-9 w-9"
+                              aria-label={`Call ${inquiry.name}`}
+                              title="Call lead"
                             >
-                              + Schedule follow-up
-                            </button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Closed</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-4">
-                          <div className="flex items-center gap-2">
-                            {age === 0 ? (
-                              <CheckCircle2 className="h-4 w-4 text-success" />
-                            ) : (
-                              <Clock3 className={`h-4 w-4 ${age >= 7 ? "text-warning" : "text-muted-foreground"}`} />
-                            )}
-                            <div>
-                              <p className="text-xs">{age === 0 ? "Updated today" : `${age}d since update`}</p>
-                              <p className="text-[10px] text-muted-foreground">Added {shortDate(inquiry.createdAt)}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-4">
-                          <div className="flex justify-end gap-1">
-                            <Button asChild variant="ghost" size="icon" title="Call lead">
                               <a href={`tel:${inquiry.phone}`}>
                                 <Phone className="h-4 w-4" />
                               </a>
                             </Button>
                             {inquiry.email && (
-                              <Button asChild variant="ghost" size="icon" title="Email lead">
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9"
+                                aria-label={`Email ${inquiry.name}`}
+                                title="Email lead"
+                              >
                                 <a href={`mailto:${inquiry.email}`}>
                                   <Mail className="h-4 w-4" />
                                 </a>
@@ -857,6 +1154,8 @@ function InquiriesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              className="ml-auto h-9 w-9"
+                              aria-label={`Edit inquiry ${inquiry.name}`}
                               title="Edit inquiry"
                               onClick={() => {
                                 setEditing(inquiry);
@@ -868,23 +1167,24 @@ function InquiriesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              className="h-9 w-9 text-muted-foreground hover:text-destructive"
+                              aria-label={`Delete inquiry ${inquiry.name}`}
                               title="Delete inquiry"
-                              className="text-muted-foreground hover:text-destructive"
                               onClick={() => setRemoving(inquiry)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
             </div>
-          )}
+          </Panel>
         </div>
-      </Panel>
+      </div>
 
       <InquiryFormDialog
         key={editing?.id ?? (formOpen ? "new-open" : "new-closed")}
@@ -915,7 +1215,8 @@ function InquiriesPage() {
             <Button
               variant="destructive"
               onClick={() => {
-                if (removing && !deleteInquiry(removing.id)) return toast.error("Inquiry could not be deleted");
+                if (removing && !deleteInquiry(removing.id))
+                  return toast.error("Inquiry could not be deleted");
                 setRemoving(null);
                 toast.success("Inquiry deleted");
               }}
@@ -949,24 +1250,35 @@ function LeadMetric({
     success: "border-success/35 bg-success/10 text-success",
   };
   return (
-    <div className="surface-panel flex items-center gap-4 rounded-2xl p-5">
-      <span className={`grid h-11 w-11 place-items-center rounded-xl border ${tones[tone]}`}>
-        <Icon className="h-5 w-5" />
+    <div className="surface-panel flex min-w-0 items-center gap-3 rounded-2xl p-3 sm:gap-4 sm:p-5">
+      <span
+        className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border sm:h-11 sm:w-11 ${tones[tone]}`}
+      >
+        <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
       </span>
-      <div>
-        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-        <p className="font-display text-2xl">{value}</p>
-        <p className="text-[11px] text-muted-foreground">{hint}</p>
+      <div className="min-w-0">
+        <p className="text-[9px] leading-snug uppercase tracking-[0.12em] text-muted-foreground sm:text-[10px] sm:tracking-[0.18em]">
+          {label}
+        </p>
+        <p className="break-words font-display text-xl sm:text-2xl">{value}</p>
+        <p className="text-[10px] leading-snug text-muted-foreground sm:text-[11px]">{hint}</p>
       </div>
     </div>
   );
 }
 
 function LeadScore({ score, showLabel = false }: { score: number; showLabel?: boolean }) {
-  const tone = score >= 75 ? "text-success border-success/35 bg-success/10" : score >= 50 ? "text-gold border-gold/35 bg-gold/10" : "text-muted-foreground border-border bg-secondary/40";
+  const tone =
+    score >= 75
+      ? "text-success border-success/35 bg-success/10"
+      : score >= 50
+        ? "text-gold border-gold/35 bg-gold/10"
+        : "text-muted-foreground border-border bg-secondary/40";
   return (
     <div className="inline-flex items-center gap-2">
-      <span className={`grid h-8 min-w-8 place-items-center rounded-full border px-1 text-[11px] font-bold ${tone}`}>
+      <span
+        className={`grid h-8 min-w-8 place-items-center rounded-full border px-1 text-[11px] font-bold ${tone}`}
+      >
         {score}
       </span>
       {showLabel && (
@@ -978,7 +1290,13 @@ function LeadScore({ score, showLabel = false }: { score: number; showLabel?: bo
   );
 }
 
-function PriorityBadge({ priority, compact = false }: { priority: InquiryPriority; compact?: boolean }) {
+function PriorityBadge({
+  priority,
+  compact = false,
+}: {
+  priority: InquiryPriority;
+  compact?: boolean;
+}) {
   const classes = {
     hot: "border-destructive/40 bg-destructive/10 text-destructive",
     warm: "border-gold/40 bg-gold/10 text-gold",

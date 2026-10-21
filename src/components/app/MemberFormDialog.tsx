@@ -22,24 +22,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { addMember, updateMember, useGym } from "@/lib/gym/store";
-import type { Member, PaymentMethod, PhoneCountry } from "@/lib/gym/types";
+import type { Member, MemberShift, PaymentMethod, PhoneCountry } from "@/lib/gym/types";
 import { isWalkIn, shortDate } from "@/lib/gym/selectors";
 import { dialCodeFor, localPhoneDigits, phoneInputValue } from "@/lib/gym/phone";
 import { isLifetimePlan, membershipEndDate } from "@/lib/gym/membership";
 import { isSafeMoneyAmount, isSafeMoneySum } from "@/lib/gym/money";
 import { openSubscriptionPaywall } from "@/lib/billing/client";
 import { PrivateAssetImage } from "@/components/app/PrivateAssetImage";
-import {
-  dataUrlToBlob,
-  deletePrivateAsset,
-  uploadPrivateAsset,
-} from "@/lib/gym/storage";
+import { dataUrlToBlob, deletePrivateAsset, uploadPrivateAsset } from "@/lib/gym/storage";
 
 type FormState = {
   name: string;
   email: string;
   phone: string;
   gender: Member["gender"];
+  shift: MemberShift | "unassigned";
   dob: string;
   address: string;
   emergencyContact: string;
@@ -53,11 +50,14 @@ type FormState = {
   paymentMethod: Extract<PaymentMethod, "cash" | "upi" | "card">;
 };
 
+const NO_PLAN = "__no_plan__";
+
 const empty: FormState = {
   name: "",
   email: "",
   phone: "",
   gender: "male",
+  shift: "unassigned",
   dob: "",
   address: "",
   emergencyContact: "",
@@ -124,6 +124,7 @@ export function MemberFormDialog({
             email: member.email,
             phone: phoneInputValue(member.phone, state?.settings.phoneCountry),
             gender: member.gender,
+            shift: member.shift ?? "unassigned",
             dob: member.dob ? member.dob.slice(0, 10) : "",
             address: member.address,
             emergencyContact: phoneInputValue(
@@ -203,7 +204,10 @@ export function MemberFormDialog({
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const selectedPlan = state.plans.find((p) => p.id === form.planId && !p.deletedAt) ?? null;
+  const hasPlanSelected = Boolean(form.planId && form.planId !== NO_PLAN);
+  const selectedPlan = hasPlanSelected
+    ? (state.plans.find((p) => p.id === form.planId && !p.deletedAt) ?? null)
+    : null;
   const originalPrice = selectedPlan?.price ?? 0;
   const rawDiscount =
     form.discountType === "none"
@@ -226,7 +230,7 @@ export function MemberFormDialog({
 
   // Live (auto-updating) validation for discount + amount paid.
   let liveDiscountError = "";
-  if (!member && form.discountType !== "none") {
+  if (!member && hasPlanSelected && form.discountType !== "none") {
     const dv = Number(form.discountValue);
     if (form.discountValue === "" || Number.isNaN(dv) || !Number.isFinite(dv) || dv < 0)
       liveDiscountError = "Enter a valid discount.";
@@ -236,21 +240,21 @@ export function MemberFormDialog({
       liveDiscountError = "Discount cannot exceed the membership price.";
   }
   let livePaidError = "";
-  if (!member && form.paidNow !== "") {
+  if (!member && hasPlanSelected && form.paidNow !== "") {
     const paid = Number(form.paidNow);
     if (Number.isNaN(paid) || !Number.isFinite(paid)) livePaidError = "Enter a valid amount.";
     else if (paid < 0) livePaidError = "Amount cannot be negative.";
-    else if (form.planId && paid > finalPrice)
+    else if (hasPlanSelected && paid > finalPrice)
       livePaidError = "Amount paid cannot exceed the final payable amount.";
   }
 
   let liveJoiningFeeError = "";
-  if (!member) {
+  if (!member && hasPlanSelected) {
     if (form.joiningFee === "" || !isSafeMoneyAmount(Number(form.joiningFee)))
       liveJoiningFeeError = "Enter a valid joining fee.";
     else if (Number(form.joiningFee) < 0) liveJoiningFeeError = "Joining fee cannot be negative.";
     else if (
-      form.planId &&
+      hasPlanSelected &&
       !isSafeMoneySum(Math.max(0, originalPrice - discountAmount), joiningFee)
     )
       liveJoiningFeeError = "The total membership charge is too large to calculate accurately.";
@@ -293,8 +297,9 @@ export function MemberFormDialog({
 
   const validate = () => {
     const e = personalErrors();
-    if (!member && !form.planId) e.planId = "Select a membership plan.";
-    if (!member && !form.startDate) e.startDate = "Select a membership start date.";
+    if (!member && !form.planId) e.planId = "Select a plan or choose No plan.";
+    if (!member && hasPlanSelected && !form.startDate)
+      e.startDate = "Select a membership start date.";
     if (liveJoiningFeeError) e.joiningFee = liveJoiningFeeError;
     if (liveDiscountError) e.discount = liveDiscountError;
     if (livePaidError) e.paidNow = livePaidError;
@@ -456,6 +461,11 @@ export function MemberFormDialog({
         email: form.email.trim(),
         phone: form.phone.trim(),
         gender: form.gender,
+        shift: editingWalkIn
+          ? (member?.shift ?? null)
+          : form.shift === "unassigned"
+            ? null
+            : form.shift,
         dob: editingWalkIn ? (member?.dob ?? "") : form.dob,
         address: form.address.trim(),
         emergencyContact: form.emergencyContact.trim(),
@@ -476,11 +486,11 @@ export function MemberFormDialog({
       } else {
         const added = addMember({
           ...payload,
-          planId: form.planId || undefined,
-          startDate: form.startDate ? `${form.startDate}T00:00:00` : undefined,
-          joiningFee,
-          discount: form.planId ? discountAmount : 0,
-          paidNow: Math.min(Number(form.paidNow || 0), form.planId ? finalPrice : 0),
+          planId: hasPlanSelected ? form.planId : undefined,
+          startDate: hasPlanSelected && form.startDate ? `${form.startDate}T00:00:00` : undefined,
+          joiningFee: hasPlanSelected ? joiningFee : 0,
+          discount: hasPlanSelected ? discountAmount : 0,
+          paidNow: Math.min(Number(form.paidNow || 0), hasPlanSelected ? finalPrice : 0),
           paymentMethod: form.paymentMethod,
         });
         if (!added) {
@@ -662,6 +672,7 @@ export function MemberFormDialog({
                       min={new Date(1920, 0, 1)}
                       max={new Date()}
                       placeholder="Select date of birth"
+                      ariaLabel="Date of birth"
                     />
                   </Field>
                 )}
@@ -689,6 +700,23 @@ export function MemberFormDialog({
                       country={state?.settings.phoneCountry}
                       onChange={(value) => set("emergencyContact", value)}
                     />
+                  </Field>
+                )}
+                {!editingWalkIn && (
+                  <Field label="Preferred shift">
+                    <Select
+                      value={form.shift}
+                      onValueChange={(value) => set("shift", value as FormState["shift"])}
+                    >
+                      <SelectTrigger aria-label="Preferred shift">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unassigned">Not assigned</SelectItem>
+                        <SelectItem value="morning">Morning</SelectItem>
+                        <SelectItem value="evening">Evening</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </Field>
                 )}
               </div>
@@ -719,9 +747,10 @@ export function MemberFormDialog({
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a plan" />
+                    <SelectValue placeholder="Select a plan or choose No plan" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value={NO_PLAN}>No plan — assign membership later</SelectItem>
                     {state.plans
                       .filter((p) => !p.deletedAt)
                       .map((p) => (
@@ -733,131 +762,144 @@ export function MemberFormDialog({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field
-                label={`Joining fee (${cur})`}
-                error={liveJoiningFeeError || errors.joiningFee}
-              >
-                <Input
-                  type="number"
-                  min={0}
-                  step="1"
-                  value={form.joiningFee}
-                  onChange={(e) => set("joiningFee", e.target.value)}
-                />
-              </Field>
-              <Field label="Membership start date" error={errors.startDate}>
-                <AppDatePicker
-                  value={form.startDate}
-                  onChange={(value) => set("startDate", value)}
-                  min={new Date(new Date().setHours(0, 0, 0, 0))}
-                  max={new Date(new Date().getFullYear() + 5, 11, 31)}
-                  placeholder="Select start date"
-                />
-                {selectedPlan && calculatedEndDate && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {isLifetimePlan(selectedPlan)
-                      ? "This membership does not expire"
-                      : `Ends automatically on ${shortDate(calculatedEndDate)}`}
-                  </p>
-                )}
-              </Field>
-              <Field label="Discount type">
-                <Select
-                  value={form.discountType}
-                  onValueChange={(v) => set("discountType", v as FormState["discountType"])}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No discount</SelectItem>
-                    <SelectItem value="percent">Percentage (%)</SelectItem>
-                    <SelectItem value="fixed">Fixed amount ({cur})</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              {form.discountType !== "none" && (
-                <Field
-                  label={form.discountType === "percent" ? "Discount (%)" : `Discount (${cur})`}
-                  error={liveDiscountError || errors.discount}
-                >
-                  <Input
-                    type="number"
-                    min={0}
-                    max={form.discountType === "percent" ? 100 : originalPrice}
-                    value={form.discountValue}
-                    onChange={(e) => set("discountValue", e.target.value)}
-                    placeholder="0"
-                  />
-                </Field>
+              {hasPlanSelected ? (
+                <>
+                  <Field
+                    label={`Joining fee (${cur})`}
+                    error={liveJoiningFeeError || errors.joiningFee}
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={form.joiningFee}
+                      onChange={(e) => set("joiningFee", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Membership start date" error={errors.startDate}>
+                    <AppDatePicker
+                      value={form.startDate}
+                      onChange={(value) => set("startDate", value)}
+                      max={new Date(new Date().getFullYear() + 5, 11, 31)}
+                      placeholder="Select start date"
+                      ariaLabel="Membership start date"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Past, present, and future start dates are allowed.
+                    </p>
+                    {selectedPlan && calculatedEndDate && (
+                      <p className="text-xs text-muted-foreground">
+                        {isLifetimePlan(selectedPlan)
+                          ? "This membership does not expire"
+                          : `Ends automatically on ${shortDate(calculatedEndDate)}`}
+                      </p>
+                    )}
+                  </Field>
+                  <Field label="Discount type">
+                    <Select
+                      value={form.discountType}
+                      onValueChange={(v) => set("discountType", v as FormState["discountType"])}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No discount</SelectItem>
+                        <SelectItem value="percent">Percentage (%)</SelectItem>
+                        <SelectItem value="fixed">Fixed amount ({cur})</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  {form.discountType !== "none" && (
+                    <Field
+                      label={form.discountType === "percent" ? "Discount (%)" : `Discount (${cur})`}
+                      error={liveDiscountError || errors.discount}
+                    >
+                      <Input
+                        type="number"
+                        min={0}
+                        max={form.discountType === "percent" ? 100 : originalPrice}
+                        value={form.discountValue}
+                        onChange={(e) => set("discountValue", e.target.value)}
+                        placeholder="0"
+                      />
+                    </Field>
+                  )}
+                  <div className="space-y-1 rounded-lg border border-border bg-background/40 p-3 text-sm sm:col-span-2">
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Original price</span>
+                      <span className="text-foreground">
+                        {cur}
+                        {originalPrice.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Discount</span>
+                      <span className="text-foreground">
+                        - {cur}
+                        {discountAmount.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Joining fee</span>
+                      <span className="text-foreground">
+                        + {cur}
+                        {joiningFee.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between font-semibold">
+                      <span>Final payable</span>
+                      <span className="text-gold">
+                        {cur}
+                        {finalPrice.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Remaining balance</span>
+                      <span className="text-foreground">
+                        {cur}
+                        {remainingBalance.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  </div>
+                  <Field label="Amount paid now" error={livePaidError || errors.paidNow}>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={finalPrice}
+                      step="1"
+                      value={form.paidNow}
+                      onChange={(e) => set("paidNow", e.target.value)}
+                      placeholder="0"
+                    />
+                  </Field>
+                  <Field label="Payment method">
+                    <Select
+                      value={form.paymentMethod}
+                      onValueChange={(value) =>
+                        set(
+                          "paymentMethod",
+                          value as Extract<PaymentMethod, "cash" | "upi" | "card">,
+                        )
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="upi">UPI</SelectItem>
+                        <SelectItem value="card">Card</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </>
+              ) : (
+                <p className="rounded-lg border border-border bg-background/40 p-3 text-sm text-muted-foreground sm:col-span-2">
+                  This member will be added without a membership plan. You can assign a plan later
+                  from Memberships.
+                </p>
               )}
-              {form.planId && (
-                <div className="space-y-1 rounded-lg border border-border bg-background/40 p-3 text-sm sm:col-span-2">
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Original price</span>
-                    <span className="text-foreground">
-                      {cur}
-                      {originalPrice.toLocaleString("en-IN")}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Discount</span>
-                    <span className="text-foreground">
-                      - {cur}
-                      {discountAmount.toLocaleString("en-IN")}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Joining fee</span>
-                    <span className="text-foreground">
-                      + {cur}
-                      {joiningFee.toLocaleString("en-IN")}
-                    </span>
-                  </div>
-                  <div className="flex justify-between font-semibold">
-                    <span>Final payable</span>
-                    <span className="text-gold">
-                      {cur}
-                      {finalPrice.toLocaleString("en-IN")}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Remaining balance</span>
-                    <span className="text-foreground">
-                      {cur}
-                      {remainingBalance.toLocaleString("en-IN")}
-                    </span>
-                  </div>
-                </div>
-              )}
-              <Field label="Amount paid now" error={livePaidError || errors.paidNow}>
-                <Input
-                  type="number"
-                  min={0}
-                  max={finalPrice}
-                  step="1"
-                  value={form.paidNow}
-                  onChange={(e) => set("paidNow", e.target.value)}
-                  placeholder="0"
-                />
-              </Field>
-              <Field label="Payment method">
-                <Select
-                  value={form.paymentMethod}
-                  onValueChange={(value) =>
-                    set("paymentMethod", value as Extract<PaymentMethod, "cash" | "upi" | "card">)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="upi">UPI</SelectItem>
-                    <SelectItem value="card">Card</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
             </div>
           )}
 
@@ -882,7 +924,7 @@ export function MemberFormDialog({
                 Next
               </Button>
             ) : (
-              <Button type="submit" disabled={!member && (!membershipStepReady || !form.planId)}>
+              <Button type="submit" disabled={!member && !membershipStepReady}>
                 {member ? "Save changes" : "Add member"}
               </Button>
             )}

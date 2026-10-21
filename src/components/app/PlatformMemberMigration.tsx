@@ -283,7 +283,7 @@ export function PlatformMemberMigration() {
     try {
       const { data, error } = await supabase.rpc("platform_list_member_migration_members", {
         p_source_gym_id: sourceGym.gym_id,
-        p_destination_gym_id: destinationId || null,
+        p_destination_gym_id: destinationId || undefined,
         p_search: memberSearch,
         p_page: memberPage,
         p_page_size: PAGE_SIZE,
@@ -319,7 +319,7 @@ export function PlatformMemberMigration() {
       let expected = 0;
       do {
         const { data, error } = await supabase.rpc("platform_list_member_migration_members", {
-          p_source_gym_id: gymId, p_destination_gym_id: null, p_search: "", p_page: page, p_page_size: PAGE_SIZE,
+          p_source_gym_id: gymId, p_destination_gym_id: undefined, p_search: "", p_page: page, p_page_size: PAGE_SIZE,
         });
         if (error) throw error;
         const result = (data ?? []) as RemoteMigrationMember[];

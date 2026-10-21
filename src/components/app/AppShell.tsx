@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   LayoutDashboard,
   Users,
+  UserRoundCheck,
   BadgeCheck,
   Wallet,
   Package,
@@ -18,7 +19,6 @@ import {
   Dumbbell,
   EllipsisVertical,
   Search,
-  Cloud,
   CloudOff,
   RefreshCw,
 } from "lucide-react";
@@ -50,9 +50,10 @@ import { GlobalSearch } from "./GlobalSearch";
 import { PlatformAppReleaseNotice } from "./PlatformAppReleaseNotice";
 import { APP_TOUR_REQUEST_KEY, OnboardingTour } from "./OnboardingTour";
 import { SubscriptionPaywall } from "./SubscriptionPaywall";
+import { usePrivateAssetUrl } from "./PrivateAssetImage";
+import { isPrivateGymLogoPath } from "@/lib/gym/storage";
 import {
   localSubscriptionDaysRemaining,
-  refreshSubscription,
   SUBSCRIPTION_PAYWALL_EVENT,
   useSubscription,
   verifyStripeCheckout,
@@ -61,6 +62,7 @@ import {
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/members", label: "Members", icon: Users },
+  { to: "/attendance", label: "Attendance", icon: UserRoundCheck },
   { to: "/memberships", label: "Memberships", icon: BadgeCheck },
   { to: "/payments", label: "Payments", icon: Wallet },
   { to: "/products", label: "Products", icon: Package },
@@ -80,6 +82,7 @@ const OWNER_ONLY_ROUTES = ["/settings"];
 const RECEPTIONIST_ROUTE_PERMISSION = {
   "/": "dashboard",
   "/members": "members",
+  "/attendance": "members",
   "/memberships": "memberships",
   "/payments": "payments",
   "/products": "products",
@@ -92,6 +95,10 @@ const RECEPTIONIST_ROUTE_PERMISSION = {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const state = useGym();
+  const gymLogoSource = state?.settings.gymLogo;
+  const gymLogo = usePrivateAssetUrl(
+    isPrivateGymLogoPath(gymLogoSource) ? gymLogoSource : null,
+  );
   const subscription = useSubscription();
   const accessContext = getCurrentSession();
   const navigate = useNavigate();
@@ -196,7 +203,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.addEventListener("focus", refresh);
     window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", handleVisibility);
-    refresh();
+    // validateCurrentSession has already loaded the authoritative workspace.
+    // Do not immediately fetch the same workspace again when each route mounts
+    // its own shell; focus, visibility, and the 30-second timer still refresh it.
     return () => {
       window.clearInterval(interval);
       window.removeEventListener("focus", refresh);
@@ -313,7 +322,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       toast.info("Subscription checkout was cancelled. No access changes were made.");
       cleanBillingQuery();
     }
-    void refreshSubscription();
+    // completeCloudLogin already supplied the authoritative entitlement
+    // snapshot. Re-fetching it from each route's newly mounted shell was
+    // redundant; checkout verification and explicit billing actions still
+    // refresh entitlement where a change can actually occur.
   }, [ready, sessionChecked, state]);
 
   useEffect(() => {
@@ -426,8 +438,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 else setOpen(false);
               }}
             >
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[image:var(--gradient-gold)] text-primary-foreground">
-                <Dumbbell className="h-5 w-5" />
+              <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-[image:var(--gradient-gold)] text-primary-foreground">
+                {gymLogo.url ? (
+                  <img src={gymLogo.url} alt="" className="h-full w-full object-contain" />
+                ) : (
+                  <Dumbbell className="h-5 w-5" />
+                )}
               </span>
               <span className="min-w-0">
                 <span className="block truncate font-display text-xl leading-none tracking-[0.18em] text-gradient-gold">
@@ -464,8 +480,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="border-t border-sidebar-border p-4">
             <div className="flex items-center gap-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-gold/40 text-xs font-semibold text-gold">
-                {session.name.slice(0, 2).toUpperCase()}
+              <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-gold/40 text-xs font-semibold text-gold">
+                {session.role === "admin" && gymLogo.url ? (
+                  <img src={gymLogo.url} alt="Gym logo" className="h-full w-full object-contain" />
+                ) : (
+                  session.name.slice(0, 2).toUpperCase()
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{session.name}</p>
@@ -525,10 +545,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               <button
                 onClick={() => setSearchOpen(true)}
                 data-tour="global-search"
+                aria-label="Search members, products, and invoices"
                 className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-gold/40 lg:w-[380px]"
               >
                 <Search className="h-4 w-4 shrink-0" />
-                <span className="truncate">Search members, products, invoices…</span>
+                <span aria-hidden="true" className="hidden min-w-0 truncate sm:block">
+                  Search members, products, invoices…
+                </span>
+                <span aria-hidden="true" className="truncate sm:hidden">
+                  Search…
+                </span>
                 <kbd className="ml-auto hidden rounded border border-border px-1.5 py-0.5 text-[10px] sm:block">
                   ⌘K
                 </kbd>
@@ -537,6 +563,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div />
             )}
             <div className="flex items-center gap-2 justify-self-end">
+              {(syncStatus.message ||
+                !syncStatus.online ||
+                syncStatus.offlineSession ||
+                syncStatus.pending) && (
               <button
                 type="button"
                 onClick={async () => {
@@ -571,7 +601,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     ? "border-warning/35 bg-warning/10 text-warning"
                     : syncStatus.pending
                       ? "border-warning/35 bg-warning/10 text-warning hover:bg-warning/15"
-                      : "border-success/30 bg-success/5 text-success",
+                      : "border-warning/35 bg-warning/10 text-warning",
                   (!syncStatus.online || !syncStatus.pending) && "cursor-default",
                 )}
                 title={
@@ -580,7 +610,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     ? "Using this device's saved workspace. Reconnect to revalidate and synchronize with the server."
                     : syncStatus.pending
                       ? "Cloud changes are pending. Click to safely retry synchronization."
-                      : "Your latest changes are synchronized with the cloud.")
+                      : "Cloud sync needs attention.")
                 }
                 aria-label={
                   syncStatus.message
@@ -589,7 +619,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       ? "Offline access; changes are saved on this device"
                       : syncStatus.pending
                         ? "Cloud sync pending; retry synchronization"
-                        : "Synchronized with cloud"
+                        : "Cloud sync needs attention"
                 }
               >
                 {!syncStatus.online || syncStatus.offlineSession ? (
@@ -599,7 +629,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     className={cn("h-3.5 w-3.5 shrink-0", retryingSync && "animate-spin")}
                   />
                 ) : (
-                  <Cloud className="h-3.5 w-3.5 shrink-0" />
+                  <CloudOff className="h-3.5 w-3.5 shrink-0" />
                 )}
                 <span className="truncate">
                   {!syncStatus.online || syncStatus.offlineSession
@@ -610,9 +640,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                       ? "Sync needs attention"
                       : syncStatus.pending
                         ? "Sync pending · retry"
-                        : "Cloud synced"}
+                        : "Sync needs attention"}
                 </span>
               </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

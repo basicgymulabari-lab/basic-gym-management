@@ -19,7 +19,7 @@ export function GlobalSearch({
 }) {
   const state = useGym();
   const navigate = useNavigate();
-  if (!state) return null;
+  if (!state || !open) return null;
 
   const go = (fn: () => void) => {
     onOpenChange(false);
@@ -32,26 +32,24 @@ export function GlobalSearch({
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Members">
-          {activeMembers(state)
-            .slice(0, 40)
-            .map((m) => (
-              <CommandItem
-                key={m.id}
-                value={`${m.name} ${m.phone} ${m.email}`}
-                onSelect={() =>
-                  go(() =>
-                    navigate({
-                      to: "/members/$memberId",
-                      params: { memberId: m.id },
-                      search: { tab: undefined },
-                    }),
-                  )
-                }
-              >
-                <span className="font-medium">{m.name}</span>
-                <span className="ml-auto text-xs text-muted-foreground">{m.phone}</span>
-              </CommandItem>
-            ))}
+          {activeMembers(state).map((m) => (
+            <CommandItem
+              key={m.id}
+              value={`${m.name} ${m.phone} ${m.email}`}
+              onSelect={() =>
+                go(() =>
+                  navigate({
+                    to: "/members/$memberId",
+                    params: { memberId: m.id },
+                    search: { tab: undefined },
+                  }),
+                )
+              }
+            >
+              <span className="font-medium">{m.name}</span>
+              <span className="ml-auto text-xs text-muted-foreground">{m.phone}</span>
+            </CommandItem>
+          ))}
         </CommandGroup>
         <CommandGroup heading="Products">
           {state.products.map((p) => (

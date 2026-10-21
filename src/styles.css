@@ -196,6 +196,13 @@
     opacity: 1;
   }
 
+  /* Keep Chromium's native time chooser in the app's dark palette and use the
+     brand gold for native selection accents instead of browser-default blue. */
+  input[type="time"] {
+    color-scheme: dark;
+    accent-color: var(--gold);
+  }
+
   /* Keep Chromium's native number steppers in the same dark palette as every
      numeric field, instead of rendering the browser-default white control. */
   input[type="number"] {

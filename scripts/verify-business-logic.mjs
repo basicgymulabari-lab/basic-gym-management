@@ -190,26 +190,47 @@ try {
     "destination Pro is shown as a gym-owner workspace entitlement, separate from member membership status",
   );
   assert.match(
-    migration.destinationCapacityNotice({ member_count: 9, has_pro: false, remaining_free_slots: 1 }).message,
+    migration.destinationCapacityNotice({
+      member_count: 9,
+      has_pro: false,
+      remaining_free_slots: 1,
+    }).message,
     /9 of 10 roster members.*1 free slot remaining/i,
     "a free destination shows the exact remaining roster capacity",
   );
   assert.deepEqual(
-    migration.membersPendingTransferRetry(["moved", "failed", "duplicate", "not-reached"], [
-      { source_member_id: "moved", outcome: "transferred", message: "Profile transferred." },
-      { source_member_id: "failed", outcome: "failed", message: "Free limit." },
-      { source_member_id: "duplicate", outcome: "skipped", message: "Possible duplicate email or phone." },
-      { source_member_id: "already-moved", outcome: "skipped", message: "This member has already been transferred from the source gym." },
-    ]),
+    migration.membersPendingTransferRetry(
+      ["moved", "failed", "duplicate", "not-reached"],
+      [
+        { source_member_id: "moved", outcome: "transferred", message: "Profile transferred." },
+        { source_member_id: "failed", outcome: "failed", message: "Free limit." },
+        {
+          source_member_id: "duplicate",
+          outcome: "skipped",
+          message: "Possible duplicate email or phone.",
+        },
+        {
+          source_member_id: "already-moved",
+          outcome: "skipped",
+          message: "This member has already been transferred from the source gym.",
+        },
+      ],
+    ),
     ["failed", "duplicate", "not-reached"],
     "a failed transfer keeps unresolved rows retryable without selecting already-transferred members",
   );
   assert.deepEqual(
-    migration.membersPendingTransferRetry(["already-moved"], [{
-      source_member_id: "already-moved",
-      outcome: "skipped",
-      message: "Already transferred to My Gym — owner@example.invalid on 11 Oct 2026 10:00 UTC. No duplicate was created.",
-    }]),
+    migration.membersPendingTransferRetry(
+      ["already-moved"],
+      [
+        {
+          source_member_id: "already-moved",
+          outcome: "skipped",
+          message:
+            "Already transferred to My Gym — owner@example.invalid on 11 Oct 2026 10:00 UTC. No duplicate was created.",
+        },
+      ],
+    ),
     [],
     "the detailed idempotent-retry response also removes an already-migrated row from the retry selection",
   );
@@ -220,10 +241,18 @@ try {
   );
   assert.deepEqual(
     migration.summarizeTransferSelection(["active", "profile-only", "missing"], {
-      active: { current_membership: { active: true, membership_count: 3, active_membership_count: 1 } },
+      active: {
+        current_membership: { active: true, membership_count: 3, active_membership_count: 1 },
+      },
       "profile-only": { current_membership: null },
     }),
-    { selectedCount: 3, membershipCount: 3, activeMembershipCount: 1, profileOnlyCount: 1, missingPreviewCount: 1 },
+    {
+      selectedCount: 3,
+      membershipCount: 3,
+      activeMembershipCount: 1,
+      profileOnlyCount: 1,
+      missingPreviewCount: 1,
+    },
     "migration confirmation counts every historical membership, profile-only transfers, and missing previews",
   );
   assert.deepEqual(
@@ -231,15 +260,19 @@ try {
       transferred: 0,
       skipped: 1,
       failed: 0,
-      results: [{
-        source_member_id: "already-moved",
-        outcome: "skipped",
-        message: "Already transferred to My Gym — owner@example.invalid on 11 Oct 2026 10:00 UTC. No duplicate was created.",
-      }],
+      results: [
+        {
+          source_member_id: "already-moved",
+          outcome: "skipped",
+          message:
+            "Already transferred to My Gym — owner@example.invalid on 11 Oct 2026 10:00 UTC. No duplicate was created.",
+        },
+      ],
     }),
     {
       tone: "warning",
-      message: "This member is already at the previously confirmed destination. No duplicate was created. Gym-owner Pro controls workspace capacity; it does not upgrade a gym member or move this profile again. Already transferred to My Gym — owner@example.invalid on 11 Oct 2026 10:00 UTC.",
+      message:
+        "This member is already at the previously confirmed destination. No duplicate was created. Gym-owner Pro controls workspace capacity; it does not upgrade a gym member or move this profile again. Already transferred to My Gym — owner@example.invalid on 11 Oct 2026 10:00 UTC.",
     },
     "a safe replay explains the member is already at its destination and gym-owner Pro cannot upgrade the member",
   );
@@ -250,12 +283,17 @@ try {
       failed: 0,
       results: [
         { source_member_id: "moved", outcome: "transferred" },
-        { source_member_id: "duplicate", outcome: "skipped", message: "Possible duplicate email or phone." },
+        {
+          source_member_id: "duplicate",
+          outcome: "skipped",
+          message: "Possible duplicate email or phone.",
+        },
       ],
     }),
     {
       tone: "warning",
-      message: "Transfer recorded: 1 transferred, 1 skipped, 0 failed. See Migration history for row details.",
+      message:
+        "Transfer recorded: 1 transferred, 1 skipped, 0 failed. See Migration history for row details.",
     },
     "ordinary duplicate skips keep the standard transfer summary",
   );
@@ -431,8 +469,16 @@ try {
     phone: migrationStressRows[0].draft.phone,
   };
   const migrationStressResults = migration.findPossibleDuplicates(migrationStressRows, []);
-  assert.equal(migrationStressResults.length, 5000, "duplicate preview handles the maximum supported migration size");
-  assert.equal(migrationStressResults.filter((row) => row.duplicate).length, 1, "duplicate preview detects an in-file duplicate at scale");
+  assert.equal(
+    migrationStressResults.length,
+    5000,
+    "duplicate preview handles the maximum supported migration size",
+  );
+  assert.equal(
+    migrationStressResults.filter((row) => row.duplicate).length,
+    1,
+    "duplicate preview detects an in-file duplicate at scale",
+  );
   assert.equal(migrationStressResults.at(-1).duplicate, true);
   const migrationCsv = new File(
     ['Member Name,Phone Number,DOB\n"Riya, ""Riri"" Sharma",9800000002,1996-08-17'],
@@ -501,6 +547,8 @@ try {
     ...stressMember,
     id: "follow-up-no-membership",
     name: "Follow-up without a term",
+    phone: "+9770000000001",
+    email: "follow-up-without@example.test",
     type: "member",
     deletedAt: null,
   };
@@ -508,6 +556,8 @@ try {
     ...stressMember,
     id: "follow-up-expired-term",
     name: "Follow-up with expired term",
+    phone: "+9770000000002",
+    email: "follow-up-expired@example.test",
     type: "member",
     deletedAt: null,
   };
@@ -526,9 +576,11 @@ try {
     createdAt: new Date(stressNow.getTime() - 32 * 24 * 60 * 60 * 1000).toISOString(),
   });
   const followUpRows = selectors.membershipRoster(membershipFollowUpState);
-  const dashboardExpiredCount = selectors.gymMembers(membershipFollowUpState).filter(
-    (member) => selectors.statusOf(membershipFollowUpState, member.id) === "expired",
-  ).length;
+  const dashboardExpiredCount = selectors
+    .gymMembers(membershipFollowUpState)
+    .filter(
+      (member) => selectors.statusOf(membershipFollowUpState, member.id) === "expired",
+    ).length;
   assert.equal(
     followUpRows.filter((row) => row.status === "expired").length,
     dashboardExpiredCount,
@@ -548,6 +600,37 @@ try {
     followUpRows.find((row) => row.member.id === expiredTermMember.id)?.status,
     "expired",
     "a member with an actually expired membership term remains in follow-up",
+  );
+  assert.deepEqual(
+    selectors
+      .searchMembershipRoster(followUpRows, "  FOLLOW-UP WITHOUT  ")
+      .map((row) => row.member.id),
+    [unassignedMember.id],
+    "membership follow-up search matches member names immediately and without case sensitivity",
+  );
+  assert.deepEqual(
+    selectors
+      .searchMembershipRoster(followUpRows, expiredTermMember.phone)
+      .map((row) => row.member.id),
+    [expiredTermMember.id],
+    "membership follow-up search can locate a member by phone number",
+  );
+  assert.deepEqual(
+    selectors
+      .searchMembershipRoster(followUpRows, unassignedMember.email)
+      .map((row) => row.member.id),
+    [unassignedMember.id],
+    "membership follow-up search can locate a member by email address",
+  );
+  assert.deepEqual(
+    selectors.searchMembershipRoster(followUpRows, "   "),
+    followUpRows,
+    "an empty or whitespace-only membership search leaves all rows visible",
+  );
+  assert.equal(
+    selectors.searchMembershipRoster(followUpRows, "no such member").length,
+    0,
+    "membership follow-up search returns no rows when nothing matches",
   );
 
   assert.equal(
@@ -679,7 +762,10 @@ try {
     "workspaces must be independent",
   );
   store.__setStateForLogicTests(demoState);
-  const bulkNotificationIds = Array.from({ length: 690 }, (_, index) => `bulk-notification-${index}`);
+  const bulkNotificationIds = Array.from(
+    { length: 690 },
+    (_, index) => `bulk-notification-${index}`,
+  );
   store.__setStateForLogicTests({ ...demoState, readNotifications: ["previously-read"] });
   assert.equal(store.markNotificationsRead(bulkNotificationIds), true);
   assert.equal(
@@ -698,6 +784,7 @@ try {
     };
 
     unique(state.members, "member");
+    unique(state.attendance ?? [], "attendance");
     unique(state.memberships, "membership");
     unique(state.payments, "payment");
     unique(state.plans, "plan");
@@ -710,6 +797,11 @@ try {
     const planIds = new Set(state.plans.map((item) => item.id));
     const membershipIds = new Set(state.memberships.map((item) => item.id));
     const saleIds = new Set(state.sales.map((item) => item.id));
+
+    (state.attendance ?? []).forEach((record) => {
+      assert(memberIds.has(record.memberId), `attendance ${record.id} has a missing member`);
+      assert.equal(record.id, `${record.date}:${record.memberId}`);
+    });
 
     state.memberships.forEach((item) => {
       assert(memberIds.has(item.memberId), `membership ${item.id} has a missing member`);
@@ -839,7 +931,11 @@ try {
     subscriptionExpired: false,
     offlineMode: false,
   });
-  remoteState = newWorkspace("qa-lost-ack-owner@example.test", "QA Lost Ack Owner", "Latest Cloud Gym");
+  remoteState = newWorkspace(
+    "qa-lost-ack-owner@example.test",
+    "QA Lost Ack Owner",
+    "Latest Cloud Gym",
+  );
   remoteRevision = 25;
   store.__setCloudWorkspaceIOForLogicTests({
     ownerId: "qa-lost-ack-owner",
@@ -857,13 +953,16 @@ try {
       throw new Error("response lost after database commit");
     },
   });
-  assert.equal(store.savePlan({
-    name: "Confirmed despite lost response",
-    price: 1,
-    durationDays: 30,
-    description: "",
-    active: true,
-  }), true);
+  assert.equal(
+    store.savePlan({
+      name: "Confirmed despite lost response",
+      price: 1,
+      durationDays: 30,
+      description: "",
+      active: true,
+    }),
+    true,
+  );
   const lostAckConsoleError = console.error;
   console.error = () => {};
   try {
@@ -908,13 +1007,16 @@ try {
   const rebaseConsoleError = console.error;
   console.error = () => {};
   try {
-    assert.equal(store.savePlan({
-      name: "Local tab plan",
-      price: 120,
-      durationDays: 30,
-      description: "",
-      active: true,
-    }), true);
+    assert.equal(
+      store.savePlan({
+        name: "Local tab plan",
+        price: 120,
+        durationDays: 30,
+        description: "",
+        active: true,
+      }),
+      true,
+    );
     assert.equal(
       store.updateMember(locallyEditedMemberId, { name: "Local tab member edit" }),
       true,
@@ -926,8 +1028,14 @@ try {
   assert.equal(rebaseSaveAttempts, 2, "the stale write is rebased and retried exactly once");
   assert(remoteState.plans.some((plan) => plan.name === "Local tab plan"));
   assert.equal(remoteState.settings.tagline, "Saved from the other tab");
-  assert.equal(remoteState.members.find((member) => member.id === remotelyEditedMemberId)?.name, "Remote tab member edit");
-  assert.equal(remoteState.members.find((member) => member.id === locallyEditedMemberId)?.name, "Local tab member edit");
+  assert.equal(
+    remoteState.members.find((member) => member.id === remotelyEditedMemberId)?.name,
+    "Remote tab member edit",
+  );
+  assert.equal(
+    remoteState.members.find((member) => member.id === locallyEditedMemberId)?.name,
+    "Local tab member edit",
+  );
   assert.equal(store.getCloudSyncStatus().pending, false);
 
   // If two tabs change the same field differently, keep each side intact and
@@ -1081,13 +1189,16 @@ try {
       });
     },
   });
-  assert.equal(store.savePlan({
-    name: "Account A pending save",
-    price: 1,
-    durationDays: 30,
-    description: "",
-    active: true,
-  }), true);
+  assert.equal(
+    store.savePlan({
+      name: "Account A pending save",
+      price: 1,
+      durationDays: 30,
+      description: "",
+      active: true,
+    }),
+    true,
+  );
   await accountASaveStarted;
 
   store.__setStateForLogicTests(buildSeed(10), {
@@ -1118,13 +1229,16 @@ try {
   });
   finishAccountASave(11);
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(store.savePlan({
-    name: "Account B pending save",
-    price: 1,
-    durationDays: 30,
-    description: "",
-    active: true,
-  }), true);
+  assert.equal(
+    store.savePlan({
+      name: "Account B pending save",
+      price: 1,
+      durationDays: 30,
+      description: "",
+      active: true,
+    }),
+    true,
+  );
   await accountBSaveStarted;
   assert.equal(
     accountBExpectedRevision,
@@ -1351,7 +1465,11 @@ try {
   });
   await assert.rejects(store.completeCloudLogin(), /previous gym still has unsynchronized changes/);
   assert.equal(crossTenantSaveCalls, 0, "unsynced data is never posted to another tenant");
-  assert.equal(crossTenantLoadCalls, 0, "another tenant workspace is not loaded over pending edits");
+  assert.equal(
+    crossTenantLoadCalls,
+    0,
+    "another tenant workspace is not loaded over pending edits",
+  );
   assert(
     store.getState().plans.some((plan) => plan.name === "Previous tenant pending plan"),
     "the previous tenant's local edit remains recoverable in the open session",
@@ -1435,6 +1553,7 @@ try {
       dob: "1995-01-01T00:00:00.000Z",
       address: "Test address",
       emergencyContact: "+91 91111 11111",
+      shift: "evening",
       planId: "plan_monthly",
       startDate: "2030-01-10T00:00:00.000Z",
       joiningFee: 750,
@@ -1448,6 +1567,55 @@ try {
   assert.equal(state.members.length, memberCount + 1);
   const testMember = state.members.find((item) => item.email === "logic@example.com");
   assert(testMember);
+  assert.equal(testMember.shift, "evening", "a member's selected workout shift is saved");
+  const checkInDay = new Date(2030, 0, 10, 8, 30);
+  assert.equal(store.checkInMember(testMember.id, checkInDay), "saved");
+  assert.equal(
+    store.getState().attendance.at(0).shift,
+    "evening",
+    "check-in history snapshots the selected member shift",
+  );
+  assert.equal(store.updateMember(testMember.id, { shift: "morning" }), true);
+  assert.equal(
+    store.checkInMember(testMember.id, new Date(2030, 0, 10, 20, 30)),
+    "already_checked_in",
+    "a member can only be checked in once per local calendar day",
+  );
+  assert.equal(
+    store.checkInMember(testMember.id, new Date(2030, 0, 11, 8, 30)),
+    "saved",
+    "the same member can check in again on the next local calendar day",
+  );
+  assert.equal(store.getState().attendance[0].shift, "morning");
+  assert.equal(
+    store.getState().attendance[1].shift,
+    "evening",
+    "later shift edits do not rewrite an earlier attendance snapshot",
+  );
+  const attendanceToTrash = store.getState().attendance[0];
+  assert.equal(store.deleteAttendanceRecord(attendanceToTrash.id), "deleted");
+  state = store.getState();
+  assert(state.attendance.find((record) => record.id === attendanceToTrash.id).deletedAt);
+  assert.equal(selectors.trashedAttendance(state).length, 1);
+  assert.equal(
+    store.checkInMember(testMember.id, new Date(2030, 0, 11, 20, 30)),
+    "already_checked_in",
+    "a trashed check-in continues to prevent a duplicate visit that day",
+  );
+  assert.equal(store.restoreAttendanceRecord(attendanceToTrash.id), true);
+  state = store.getState();
+  assert.equal(
+    state.attendance.find((record) => record.id === attendanceToTrash.id).deletedAt,
+    null,
+  );
+  assert.equal(selectors.trashedAttendance(state).length, 0);
+  assert.equal(store.deleteAttendanceRecord(attendanceToTrash.id), "deleted");
+  assert.equal(store.deleteAttendancePermanently(attendanceToTrash.id), true);
+  assert.equal(
+    store.getState().attendance.some((record) => record.id === attendanceToTrash.id),
+    false,
+  );
+  state = store.getState();
   assert.equal(selectors.dueFor(state, testMember.id), 1650);
 
   const membership = selectors.currentMembership(state, testMember.id);
@@ -1627,7 +1795,12 @@ try {
     ...stateBeforeLockedDeleteChecks,
     plans: [
       ...stateBeforeLockedDeleteChecks.plans,
-      { ...existingPlan, id: "qa-locked-trashed-plan", locked: true, deletedAt: new Date().toISOString() },
+      {
+        ...existingPlan,
+        id: "qa-locked-trashed-plan",
+        locked: true,
+        deletedAt: new Date().toISOString(),
+      },
     ],
     products: [
       ...stateBeforeLockedDeleteChecks.products,
@@ -1738,8 +1911,150 @@ try {
     "overpayments must be rejected",
   );
 
-  store.renewMembership(testMember.id, "plan_quarterly", 1000, 200);
+  const futureRenewalStart = "2030-03-14";
+  assert.equal(
+    store.renewMembership(testMember.id, "plan_quarterly", 1000, 200, "cash", futureRenewalStart),
+    true,
+  );
   assert.equal(selectors.membershipHistory(store.getState(), testMember.id).length, 2);
+  let renewedTerm = store
+    .getState()
+    .memberships.find(
+      (item) =>
+        item.memberId === testMember.id &&
+        item.planId === "plan_quarterly" &&
+        calendar.localDateInput(calendar.parseCalendarDate(item.startDate)) === futureRenewalStart,
+    );
+  assert(renewedTerm, "renewal should persist the selected future start date");
+  const quarterlyPlan = store.getState().plans.find((item) => item.id === "plan_quarterly");
+  assert(quarterlyPlan);
+  const expectedRenewalEnd = calendar.parseCalendarDate(futureRenewalStart);
+  expectedRenewalEnd.setDate(expectedRenewalEnd.getDate() + quarterlyPlan.durationDays);
+  assert.equal(
+    calendar.localDateInput(calendar.parseCalendarDate(renewedTerm.endDate)),
+    calendar.localDateInput(expectedRenewalEnd),
+    "renewal expiry should be calculated from its selected start date",
+  );
+  const countBeforeInvalidRenewal = store.getState().memberships.length;
+  assert.equal(
+    store.renewMembership(testMember.id, "plan_monthly", 0, 0, "cash", "2030-02-30"),
+    false,
+    "invalid renewal dates must be rejected",
+  );
+  assert.equal(store.getState().memberships.length, countBeforeInvalidRenewal);
+  const pastRenewalStart = "2020-03-14";
+  assert.equal(
+    store.renewMembership(testMember.id, "plan_monthly", 0, 0, "cash", pastRenewalStart),
+    true,
+    "past renewal start dates should be allowed",
+  );
+  renewedTerm = store
+    .getState()
+    .memberships.find(
+      (item) =>
+        item.memberId === testMember.id &&
+        item.planId === "plan_monthly" &&
+        calendar.localDateInput(calendar.parseCalendarDate(item.startDate)) === pastRenewalStart,
+    );
+  assert(renewedTerm, "renewal should persist the selected past start date");
+  let correctionState = store.getState();
+  const paidTerm = correctionState.memberships.find(
+    (item) => item.memberId === testMember.id &&
+      correctionState.payments.some((payment) => payment.membershipId === item.id),
+  );
+  assert(paidTerm);
+  const paidTermSnapshot = structuredClone(paidTerm);
+  const paymentSnapshot = structuredClone(correctionState.payments);
+  assert.equal(
+    store.correctUnpaidMembership({
+      membershipId: paidTerm.id,
+      planId: "plan_monthly",
+      startDate: "2031-01-15",
+      discount: 0,
+      joiningFee: 0,
+      reason: "wrong plan selected",
+    }),
+    "payments_linked",
+    "a term with payments must not be edited or alter issued receipts",
+  );
+  assert.equal(
+    store.voidUnpaidMembership(paidTerm.id, "wrong plan selected"),
+    "payments_linked",
+    "a term with payments must not be removed or orphan its invoices",
+  );
+  correctionState = store.getState();
+  assert.deepEqual(
+    correctionState.memberships.find((item) => item.id === paidTerm.id),
+    paidTermSnapshot,
+    "rejected changes must leave the paid membership unchanged",
+  );
+  assert.deepEqual(correctionState.payments, paymentSnapshot);
+
+  assert.equal(
+    store.renewMembership(testMember.id, "plan_monthly", 0),
+    true,
+    "a synthetic unpaid term should be created for correction tests",
+  );
+  correctionState = store.getState();
+  const unpaidTerm = correctionState.memberships.find(
+    (item) => item.memberId === testMember.id &&
+      !correctionState.payments.some((payment) => payment.membershipId === item.id),
+  );
+  assert(unpaidTerm);
+  const paymentCountBeforeCorrection = correctionState.payments.length;
+  assert.equal(
+    store.correctUnpaidMembership({
+      membershipId: unpaidTerm.id,
+      planId: "plan_quarterly",
+      startDate: "2031-01-15",
+      discount: 200,
+      joiningFee: 100,
+      reason: "selected the wrong plan",
+    }),
+    "saved",
+  );
+  correctionState = store.getState();
+  const correctedTerm = correctionState.memberships.find((item) => item.id === unpaidTerm.id);
+  assert(correctedTerm);
+  assert.equal(correctedTerm.id, unpaidTerm.id, "a correction must preserve the linked term ID");
+  assert.equal(correctedTerm.planId, "plan_quarterly");
+  assert.equal(correctedTerm.startDate.startsWith("2031-01-15"), true);
+  assert.equal(selectors.membershipPayable(correctedTerm), 3900);
+  assert.equal(selectors.paidFor(correctionState, correctedTerm.id), 0);
+  assert.equal(correctionState.payments.length, paymentCountBeforeCorrection);
+  assert.equal(
+    correctionState.activities[0].type,
+    "membership_corrected",
+    "the correction should leave an activity-history entry",
+  );
+  assert.match(correctionState.activities[0].description, /selected the wrong plan/);
+  const correctedSnapshot = structuredClone(correctedTerm);
+  assert.equal(
+    store.correctUnpaidMembership({
+      membershipId: correctedTerm.id,
+      planId: "plan_quarterly",
+      startDate: "2031-01-15",
+      discount: 5000,
+      joiningFee: 0,
+      reason: "invalid discount test",
+    }),
+    "invalid",
+    "invalid discount values must be rejected",
+  );
+  assert.deepEqual(
+    store.getState().memberships.find((item) => item.id === correctedTerm.id),
+    correctedSnapshot,
+  );
+  assert.equal(
+    store.voidUnpaidMembership(correctedTerm.id, "duplicate term created by mistake"),
+    "saved",
+    "an unpaid term may be removed with a recorded reason",
+  );
+  correctionState = store.getState();
+  assert.equal(correctionState.memberships.some((item) => item.id === correctedTerm.id), false);
+  assert.equal(correctionState.payments.length, paymentCountBeforeCorrection);
+  assert.equal(correctionState.activities[0].type, "membership_voided");
+  assert.match(correctionState.activities[0].description, /duplicate term created by mistake/);
   assert.equal(
     store.trashPlan("plan_quarterly"),
     true,
@@ -1845,7 +2160,11 @@ try {
   assert.equal(store.getState().sales.length, saleCountBeforeOverflow);
   assert.equal(store.getState().payments.length, paymentCountBeforeOverflow);
   assert.equal(store.getState().products.find((item) => item.id === product.id).stock, 2);
-  assert.equal(store.saveProduct(product), true, "restore the original synthetic product for sale tests");
+  assert.equal(
+    store.saveProduct(product),
+    true,
+    "restore the original synthetic product for sale tests",
+  );
   const stockBefore = product.stock;
   assert.equal(
     store.sellProduct(product.id, 2, testMember.name, testMember.id, {
@@ -1909,6 +2228,11 @@ try {
   const walkIn = state.members.find((item) => item.phone === "+91 99578 53542");
   assert(walkIn);
   assert.equal(walkIn.type, "walk_in");
+  assert.equal(
+    store.checkInMember(walkIn.id, checkInDay),
+    "member_unavailable",
+    "walk-in customers are excluded from regular member attendance",
+  );
   assert.equal(selectors.activeMembers(state).length, peopleBeforeWalkIn + 1);
   assert.equal(
     selectors.gymMembers(state).some((item) => item.id === walkIn.id),
@@ -1960,7 +2284,12 @@ try {
     "standalone customer payments must reject invalid amounts",
   );
   assert.equal(
-    store.addCustomerPayment({ payerName: "A Walk-in", payerEmail: "bad-email", amount: 25, method: "cash" }),
+    store.addCustomerPayment({
+      payerName: "A Walk-in",
+      payerEmail: "bad-email",
+      amount: 25,
+      method: "cash",
+    }),
     false,
     "standalone customer payments must reject malformed email addresses",
   );
@@ -2048,6 +2377,15 @@ try {
   const invalidExpenseBackup = JSON.parse(backup);
   invalidExpenseBackup.expenses = [{ ...invalidExpenseBackup.expenses[0], amount: -1 }];
   assert.throws(() => store.restoreBackup(JSON.stringify(invalidExpenseBackup)));
+  const legacyBackup = JSON.parse(backup);
+  delete legacyBackup.attendance;
+  assert.equal(store.restoreBackup(JSON.stringify(legacyBackup)), true);
+  assert.equal(
+    store.getState().attendance.length,
+    0,
+    "legacy backups without attendance data restore as an empty history",
+  );
+  assert.equal(store.restoreBackup(backup), true);
   const settingsBeforeReset = structuredClone(store.getState().settings);
   store.resetData();
   state = store.getState();
@@ -2057,6 +2395,7 @@ try {
     "plans",
     "memberships",
     "payments",
+    "attendance",
     "products",
     "sales",
     "activities",
@@ -2083,7 +2422,9 @@ try {
   );
 
   state = store.getState();
-  const activeMemberSnapshot = JSON.stringify(state.members.find((item) => item.id === testMember.id));
+  const activeMemberSnapshot = JSON.stringify(
+    state.members.find((item) => item.id === testMember.id),
+  );
   assert.equal(
     store.deleteMemberPermanently(testMember.id),
     false,
@@ -2124,6 +2465,11 @@ try {
   assert.equal(
     state.sales.some((item) => item.memberId === testMember.id),
     false,
+  );
+  assert.equal(
+    state.attendance.some((item) => item.memberId === testMember.id),
+    false,
+    "permanently deleting a member also removes their linked attendance records",
   );
   assertIntegrity(state);
 
@@ -2299,18 +2645,6 @@ try {
     false,
   );
   assert.equal(store.deleteNote(readOnlyMember.id, readOnlyMember.notes[0].id), false);
-  assert.equal(
-    store.addMeasurement(readOnlyMember.id, { weightKg: 70 }),
-    false,
-  );
-  assert.equal(
-    store.updateMeasurement(readOnlyMember.id, readOnlyMember.measurements[0].id, { weightKg: 70 }),
-    false,
-  );
-  assert.equal(
-    store.deleteMeasurement(readOnlyMember.id, readOnlyMember.measurements[0].id),
-    false,
-  );
   assert.equal(store.markNotificationsRead(["qa-notification"]), false);
   await assert.rejects(
     store.setupTemplateData(),

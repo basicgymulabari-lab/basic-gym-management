@@ -1,6 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Snowflake, Trash2, Pencil, Lock, ChevronDown } from "lucide-react";
+import {
+  Plus,
+  RefreshCw,
+  Snowflake,
+  Trash2,
+  Pencil,
+  Lock,
+  ChevronDown,
+  Search,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
@@ -25,6 +35,7 @@ import {
   membershipHistory,
   money,
   planOf,
+  searchMembershipRoster,
   shortDate,
 } from "@/lib/gym/selectors";
 import type { Plan } from "@/lib/gym/types";
@@ -66,19 +77,82 @@ function MembershipsPage() {
   const [trashPlanTarget, setTrashPlanTarget] = useState<Plan | null>(null);
   const [lockedPlan, setLockedPlan] = useState<Plan | null>(null);
   const [plansExpanded, setPlansExpanded] = useState(true);
+  const [memberSearch, setMemberSearch] = useState("");
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1280px)");
+    const syncPlanVisibility = () => setPlansExpanded(desktop.matches);
+    syncPlanVisibility();
+    desktop.addEventListener("change", syncPlanVisibility);
+    return () => desktop.removeEventListener("change", syncPlanVisibility);
+  }, []);
 
   const rows = useMemo(() => {
     if (!state) return [];
     return membershipRoster(state);
   }, [state]);
+  const searchedRows = useMemo(
+    () => searchMembershipRoster(rows, memberSearch),
+    [rows, memberSearch],
+  );
+
+  const rosterGroups = useMemo(() => {
+    const groups: Record<MembershipTab, typeof rows> = {
+      all: [],
+      expiring: [],
+      expired: [],
+      frozen: [],
+      unassigned: [],
+    };
+    for (const row of rows) {
+      if (row.ms) groups.all.push(row);
+      if (row.status === "expiring") groups.expiring.push(row);
+      else if (row.status === "expired" && row.ms) groups.expired.push(row);
+      else if (row.status === "frozen") groups.frozen.push(row);
+      else if (row.status === "unassigned") groups.unassigned.push(row);
+    }
+    return groups;
+  }, [rows]);
+
+  const searchedGroups = useMemo(() => {
+    const groups: Record<MembershipTab, typeof searchedRows> = {
+      all: [],
+      expiring: [],
+      expired: [],
+      frozen: [],
+      unassigned: [],
+    };
+    for (const row of searchedRows) {
+      if (row.ms) groups.all.push(row);
+      if (row.status === "expiring") groups.expiring.push(row);
+      else if (row.status === "expired" && row.ms) groups.expired.push(row);
+      else if (row.status === "frozen") groups.frozen.push(row);
+      else if (row.status === "unassigned") groups.unassigned.push(row);
+    }
+    return groups;
+  }, [searchedRows]);
+
+  const plans = useMemo(() => (state ? livePlans(state) : []), [state]);
+  const planCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!state) return counts;
+    for (const member of activeMembers(state)) {
+      const planId = currentMembership(state, member.id)?.planId;
+      if (planId) counts.set(planId, (counts.get(planId) ?? 0) + 1);
+    }
+    return counts;
+  }, [state]);
 
   if (!state) return null;
   const cur = state.settings.currency;
-  const expiring = rows.filter((r) => r.status === "expiring");
-  const expired = rows.filter((r) => r.status === "expired" && r.ms);
-  const frozen = rows.filter((r) => r.status === "frozen");
-  const unassigned = rows.filter((r) => r.status === "unassigned");
-  const allMemberships = rows.filter((r) => r.ms);
+  const { expiring, expired, frozen, unassigned } = rosterGroups;
+  const matchesByTab: Record<MembershipTab, number> = {
+    all: searchedGroups.all.length,
+    expiring: searchedGroups.expiring.length,
+    expired: searchedGroups.expired.length,
+    frozen: searchedGroups.frozen.length,
+    unassigned: searchedGroups.unassigned.length,
+  };
 
   return (
     <>
@@ -97,17 +171,25 @@ function MembershipsPage() {
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-5">
         {[
-          ["Active plans", String(livePlans(state).filter((p) => p.active).length)],
+          ["Active plans", String(plans.filter((p) => p.active).length)],
           ["Expiring soon", String(expiring.length)],
           ["Expired", String(expired.length)],
           ["Frozen", String(frozen.length)],
           ["No plan", String(unassigned.length)],
         ].map(([label, value]) => (
-          <div key={label} className="surface-panel rounded-2xl p-4">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-            <p className="mt-1 font-display text-3xl text-gold">{value}</p>
+          <div
+            key={label}
+            data-testid={label === "No plan" ? "membership-unassigned-summary" : undefined}
+            className={`surface-panel min-w-0 rounded-2xl p-3 sm:p-4 ${
+              label === "No plan" ? "col-span-2 xl:col-span-1" : ""
+            }`}
+          >
+            <p className="truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground sm:text-[11px] sm:tracking-[0.18em]">
+              {label}
+            </p>
+            <p className="mt-1 font-display text-2xl text-gold sm:text-3xl">{value}</p>
           </div>
         ))}
       </div>
@@ -122,7 +204,7 @@ function MembershipsPage() {
         >
           <span className="font-display text-xl tracking-wide">Membership Plans</span>
           <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            {plansExpanded ? "Hide plans" : `Show ${livePlans(state).length} plans`}
+            {plansExpanded ? "Hide plans" : `Show ${plans.length} plans`}
             <ChevronDown
               className={`h-5 w-5 text-gold transition-transform duration-300 ease-out ${
                 plansExpanded ? "rotate-180" : "rotate-0"
@@ -138,7 +220,7 @@ function MembershipsPage() {
         >
           <div className="overflow-hidden">
             <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-3">
-              {livePlans(state).map((p) => (
+              {plans.map((p) => (
                 <div
                   key={p.id}
                   className="group relative rounded-2xl border border-border bg-secondary/30 p-5 transition-all hover:border-gold/40"
@@ -183,11 +265,7 @@ function MembershipsPage() {
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">{p.description}</p>
                   <p className="mt-3 text-xs text-muted-foreground">
-                    {
-                      activeMembers(state).filter(
-                        (m) => currentMembership(state, m.id)?.planId === p.id,
-                      ).length
-                    }{" "}
+                    {planCounts.get(p.id) ?? 0}{" "}
                     members enrolled
                   </p>
                 </div>
@@ -214,13 +292,50 @@ function MembershipsPage() {
           <TabsTrigger value="unassigned">No plan ({unassigned.length})</TabsTrigger>
         </TabsList>
 
+        <div className="mb-4 flex w-full max-w-[780px] flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              aria-label="Search membership list by member name, phone or email"
+              className="pl-9 pr-10"
+              placeholder="Search member name or phone"
+              value={memberSearch}
+              maxLength={60}
+              onChange={(event) => {
+                setMemberSearch(event.target.value);
+                setPage(1);
+              }}
+            />
+            {memberSearch && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Clear membership search"
+                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+                onClick={() => {
+                  setMemberSearch("");
+                  setPage(1);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          {memberSearch.trim() && (
+            <span aria-live="polite" className="shrink-0 text-sm text-muted-foreground">
+              {matchesByTab[activeTab]} {matchesByTab[activeTab] === 1 ? "match" : "matches"}
+            </span>
+          )}
+        </div>
+
         {(
           [
-            ["all", allMemberships],
-            ["expiring", expiring],
-            ["expired", expired],
-            ["frozen", frozen],
-            ["unassigned", unassigned],
+            ["all", searchedGroups.all],
+            ["expiring", searchedGroups.expiring],
+            ["expired", searchedGroups.expired],
+            ["frozen", searchedGroups.frozen],
+            ["unassigned", searchedGroups.unassigned],
           ] as const
         ).map(([key, list]) => {
           const pageCount = Math.max(1, Math.ceil(list.length / MEMBERSHIP_PAGE_SIZE));
@@ -235,18 +350,129 @@ function MembershipsPage() {
               <Panel>
                 {list.length === 0 ? (
                   <EmptyState
-                    title="Nothing here"
+                    title={memberSearch.trim() ? "No matching members" : "Nothing here"}
                     hint={
-                      key === "unassigned"
-                        ? "These profiles have no membership term to freeze. Assign a plan only if they should begin or renew a membership."
-                        : key === "expired"
-                          ? "Only saved membership terms can expire or be frozen. Profiles without a membership term appear under No plan."
-                        : "This list is currently empty."
+                      memberSearch.trim()
+                        ? "Try another name, phone number or email address."
+                        : key === "unassigned"
+                          ? "These profiles have no membership term to freeze. Assign a plan only if they should begin or renew a membership."
+                          : key === "expired"
+                            ? "Only saved membership terms can expire or be frozen. Profiles without a membership term appear under No plan."
+                            : "This list is currently empty."
                     }
                   />
                 ) : (
                   <>
-                    <div className="overflow-x-auto">
+                    <div className="space-y-3 xl:hidden">
+                      {visibleRows.map(({ member, ms, status }) => {
+                        const left = ms ? membershipDaysLeft(ms) : null;
+                        const planName = ms
+                          ? (planOf(state, ms.planId)?.name ?? "Plan unavailable")
+                          : "No plan assigned";
+                        const termCount = membershipHistory(state, member.id).length;
+
+                        return (
+                          <article
+                            key={member.id}
+                            className="min-w-0 rounded-xl border border-border bg-secondary/20 p-4"
+                          >
+                            <div className="flex min-w-0 items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <Link
+                                  to="/members/$memberId"
+                                  params={{ memberId: member.id }}
+                                  search={{ tab: undefined }}
+                                  className="break-words font-semibold hover:text-gold"
+                                >
+                                  {member.name}
+                                </Link>
+                                <p className="break-all text-xs text-muted-foreground">
+                                  {member.phone}
+                                </p>
+                              </div>
+                              <StatusBadge status={status} />
+                            </div>
+
+                            <dl className="mt-4 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                              <div className="min-w-0">
+                                <dt className="text-xs text-muted-foreground">Plan</dt>
+                                <dd className="break-words">{planName}</dd>
+                              </div>
+                              <div className="min-w-0">
+                                <dt className="text-xs text-muted-foreground">Remaining</dt>
+                                <dd
+                                  className={
+                                    left !== null && left < 0
+                                      ? "text-destructive"
+                                      : left !== null && left <= 7
+                                        ? "text-warning"
+                                        : ""
+                                  }
+                                >
+                                  {left === null
+                                    ? "—"
+                                    : left < 0
+                                      ? `${Math.abs(left)}d overdue${ms?.frozen ? " · paused" : ""}`
+                                      : `${left}d ${ms?.frozen ? "paused" : "left"}`}
+                                </dd>
+                              </div>
+                              <div className="col-span-2 min-w-0">
+                                <dt className="text-xs text-muted-foreground">Period</dt>
+                                <dd className="break-words text-muted-foreground">
+                                  {ms
+                                    ? `${shortDate(ms.startDate)} → ${shortDate(ms.endDate)}`
+                                    : "No membership term recorded"}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs text-muted-foreground">Terms</dt>
+                                <dd>{termCount}</dd>
+                              </div>
+                            </dl>
+
+                            <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-3">
+                              {ms ? (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="min-h-10"
+                                  aria-label={
+                                    ms.frozen ? "Unfreeze membership" : "Freeze membership"
+                                  }
+                                  onClick={() => {
+                                    if (toggleFreeze(ms.id))
+                                      toast.success(
+                                        ms.frozen ? "Membership unfrozen" : "Membership frozen",
+                                      );
+                                    else toast.error("Membership was not changed.");
+                                  }}
+                                >
+                                  <Snowflake className="mr-1.5 h-4 w-4" />
+                                  {ms.frozen ? "Unfreeze" : "Freeze"}
+                                </Button>
+                              ) : (
+                                <span
+                                  className="mr-auto text-xs text-muted-foreground"
+                                  title="A member without a membership term cannot be frozen. Assign a plan first."
+                                >
+                                  No term to freeze
+                                </span>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="min-h-10"
+                                onClick={() => setRenewFor(member.id)}
+                              >
+                                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                                {ms ? "Renew" : "Assign plan"}
+                              </Button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                    <div className="hidden overflow-x-auto xl:block">
                       <table className="w-full min-w-[820px] text-sm">
                         <thead>
                           <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -279,7 +505,9 @@ function MembershipsPage() {
                                   <p className="text-xs text-muted-foreground">{member.phone}</p>
                                 </td>
                                 <td className="py-3 text-muted-foreground">
-                                  {ms ? (planOf(state, ms.planId)?.name ?? "Plan unavailable") : "No plan assigned"}
+                                  {ms
+                                    ? (planOf(state, ms.planId)?.name ?? "Plan unavailable")
+                                    : "No plan assigned"}
                                 </td>
                                 <td className="py-3 text-muted-foreground">
                                   {ms
@@ -316,8 +544,12 @@ function MembershipsPage() {
                                         variant="ghost"
                                         size="sm"
                                         className="h-8 px-2 text-muted-foreground hover:text-foreground"
-                                        aria-label={ms.frozen ? "Unfreeze membership" : "Freeze membership"}
-                                        title={ms.frozen ? "Unfreeze membership" : "Freeze membership"}
+                                        aria-label={
+                                          ms.frozen ? "Unfreeze membership" : "Freeze membership"
+                                        }
+                                        title={
+                                          ms.frozen ? "Unfreeze membership" : "Freeze membership"
+                                        }
                                         onClick={() => {
                                           if (toggleFreeze(ms.id))
                                             toast.success(
@@ -547,7 +779,8 @@ function PlanDialog({
           </div>
           {touched && invalid && (
             <p className="text-xs text-destructive">
-              Provide a name, a representable payable amount, a non-negative joining fee and a whole-number duration of at least 1 day.
+              Provide a name, a representable payable amount, a non-negative joining fee and a
+              whole-number duration of at least 1 day.
             </p>
           )}
           <div className="flex justify-end gap-2">

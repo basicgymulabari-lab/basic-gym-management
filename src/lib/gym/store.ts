@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { buildSeed, uid, iso } from "./seed";
-import { configureCalendarSystem } from "./calendar";
+import { configureCalendarSystem, formatShortDate, localDateInput } from "./calendar";
 import { phoneForCountry } from "./phone";
 import { membershipEndDate } from "./membership";
 import {
@@ -17,8 +17,10 @@ import {
 import type {
   Activity,
   ActivityType,
+  AttendanceRecord,
   GymState,
   Member,
+  MemberShift,
   Membership,
   Payment,
   PaymentMethod,
@@ -34,11 +36,13 @@ import type {
   ReceptionistPermissions,
   Settings,
 } from "./types";
+import { DEFAULT_PRODUCT_CATEGORIES } from "./types";
 import {
   ensureOwnerGym,
   getCachedCloudIdentity,
   getCloudGymContext,
   getCloudIdentity,
+  getCloudWorkspaceRevision,
   loadCloudWorkspace,
   recordCloudAuditEvent,
   saveCloudWorkspace,
@@ -73,6 +77,19 @@ let cloudSaveQueue: Promise<void> = Promise.resolve();
 let cloudSyncPending = false;
 let cloudSyncMessage: string | null = null;
 let onlineSyncInstalled = false;
+let pendingCloudWorkspaceRefresh: {
+  ownerId: string;
+  gymId: string;
+  revision: number;
+  state: GymState;
+  promise: Promise<boolean>;
+} | null = null;
+// Route files each own an AppShell and remount it on navigation. Reusing the
+// current authenticated workspace briefly avoids reloading the full cloud
+// snapshot for every route while keeping session revocation checks frequent.
+const CLOUD_SESSION_REVALIDATION_TTL_MS = 30_000;
+let validatedCloudSession: { ownerId: string; gymId: string; validatedAt: number } | null = null;
+let cloudSessionValidationPromise: Promise<boolean> | null = null;
 const CLOUD_PERSISTED_DATA_KEYS = [
   "version",
   "settings",
@@ -80,7 +97,9 @@ const CLOUD_PERSISTED_DATA_KEYS = [
   "plans",
   "memberships",
   "payments",
+  "attendance",
   "products",
+  "productCategories",
   "sales",
   "activities",
   "expenses",
@@ -93,7 +112,8 @@ let offlineCacheQueue: Promise<void> = Promise.resolve();
 let cloudWorkspaceIO: {
   load: typeof loadCloudWorkspace;
   save: typeof saveCloudWorkspace;
-} = { load: loadCloudWorkspace, save: saveCloudWorkspace };
+  readRevision?: typeof getCloudWorkspaceRevision;
+} = { load: loadCloudWorkspace, save: saveCloudWorkspace, readRevision: getCloudWorkspaceRevision };
 type CloudSessionIO = {
   getIdentity: typeof getCloudIdentity;
   getContext: typeof getCloudGymContext;
@@ -424,7 +444,7 @@ function installOnlineSync() {
     if (cloudOwnerId && state && cloudSyncPending) {
       scheduleCloudSave(state);
     } else if (currentSession?.offlineMode) {
-      void completeCloudLogin().catch((error) => {
+      void completeCloudLogin({ recordLoginEvent: false }).catch((error) => {
         console.warn("Could not revalidate the offline desktop session", error);
       });
     }
@@ -504,6 +524,8 @@ export function __setStateForLogicTests(next: GymState, session: CurrentSession 
   state = structuredClone(next);
   configureCalendarSystem(state.settings.calendarSystem);
   currentSession = session ? { ...session } : null;
+  validatedCloudSession = null;
+  cloudSessionValidationPromise = null;
   cloudOwnerId = null;
   cloudGymId = null;
   cloudRevision = null;
@@ -513,7 +535,12 @@ export function __setStateForLogicTests(next: GymState, session: CurrentSession 
   cloudSaveQueue = Promise.resolve();
   cloudSyncPending = false;
   cloudSyncMessage = null;
-  cloudWorkspaceIO = { load: loadCloudWorkspace, save: saveCloudWorkspace };
+  pendingCloudWorkspaceRefresh = null;
+  cloudWorkspaceIO = {
+    load: loadCloudWorkspace,
+    save: saveCloudWorkspace,
+    readRevision: getCloudWorkspaceRevision,
+  };
   cloudSessionIO = defaultCloudSessionIO;
   cloudSessionIOIsTestOverride = false;
   emit();
@@ -530,6 +557,7 @@ export function __setCloudWorkspaceIOForLogicTests(input: {
   if (typeof process === "undefined" || process.env.IRONVAULT_LOGIC_TESTS !== "1") {
     throw new Error("Cloud test adapter injection is disabled.");
   }
+  pendingCloudWorkspaceRefresh = null;
   cloudOwnerId = input.ownerId;
   cloudGymId = input.gymId;
   cloudRevision = input.revision;
@@ -568,12 +596,32 @@ function stateFromCloudWorkspace(cloudState: GymState): GymState {
       locked: expense.locked !== false,
     })),
     inquiries: cloudState.inquiries ?? [],
+    attendance: cloudState.attendance ?? [],
+    productCategories: normalizeProductCategories(
+      cloudState.productCategories,
+      cloudState.products,
+    ),
     staff: sanitizedStaff(cloudState.staff),
   };
 }
 
+function normalizeProductCategories(categories: unknown, products: Product[] = []): string[] {
+  const source = Array.isArray(categories) ? categories : DEFAULT_PRODUCT_CATEGORIES;
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of [...source, ...products.map((product) => product.category)]) {
+    if (typeof value !== "string") continue;
+    const name = value.trim();
+    const key = name.toLocaleLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(name);
+  }
+  return normalized;
+}
+
 /** Pull a newer workspace revision from Supabase without overwriting local edits. */
-export async function refreshCloudWorkspaceIfNewer() {
+export function refreshCloudWorkspaceIfNewer() {
   if (
     !cloudOwnerId ||
     !cloudGymId ||
@@ -584,13 +632,70 @@ export async function refreshCloudWorkspaceIfNewer() {
     cloudSaveTimer ||
     cloudSyncPending
   ) {
-    return false;
+    return Promise.resolve(false);
   }
 
   const ownerAtStart = cloudOwnerId;
   const gymAtStart = cloudGymId;
   const revisionAtStart = cloudRevision;
   const stateAtStart = state;
+  const pending = pendingCloudWorkspaceRefresh;
+  if (
+    pending &&
+    pending.ownerId === ownerAtStart &&
+    pending.gymId === gymAtStart &&
+    pending.revision === revisionAtStart &&
+    pending.state === stateAtStart
+  ) {
+    return pending.promise;
+  }
+
+  const request: NonNullable<typeof pendingCloudWorkspaceRefresh> = {
+    ownerId: ownerAtStart,
+    gymId: gymAtStart,
+    revision: revisionAtStart,
+    state: stateAtStart,
+    promise: refreshCloudWorkspaceFromRemote(
+      ownerAtStart,
+      gymAtStart,
+      revisionAtStart,
+      stateAtStart,
+    ).finally(() => {
+      if (pendingCloudWorkspaceRefresh === request) pendingCloudWorkspaceRefresh = null;
+    }),
+  };
+  pendingCloudWorkspaceRefresh = request;
+  return request.promise;
+}
+
+async function refreshCloudWorkspaceFromRemote(
+  ownerAtStart: string,
+  gymAtStart: string,
+  revisionAtStart: number,
+  stateAtStart: GymState,
+) {
+  const remoteRevision = await cloudWorkspaceIO.readRevision?.();
+  // Recheck after the small context request; the account may have changed.
+  if (
+    cloudOwnerId !== ownerAtStart ||
+    cloudGymId !== gymAtStart ||
+    cloudRevision !== revisionAtStart ||
+    state !== stateAtStart ||
+    cloudSaveTimer ||
+    cloudSyncPending
+  ) {
+    return false;
+  }
+  if (
+    remoteRevision?.enabled &&
+    remoteRevision.gymId === gymAtStart &&
+    remoteRevision.revision <= revisionAtStart
+  ) {
+    return false;
+  }
+
+  // Older database RPCs have no revision field. In that case, preserve the
+  // existing snapshot check as a compatibility fallback.
   const latest = await cloudWorkspaceIO.load();
 
   // The request may finish after a sign-out, workspace switch, or local edit.
@@ -646,6 +751,9 @@ export async function logoutSecurely() {
   await signOutFromCloud();
   state = null;
   currentSession = null;
+  validatedCloudSession = null;
+  cloudSessionValidationPromise = null;
+  pendingCloudWorkspaceRefresh = null;
   cloudOwnerId = null;
   cloudGymId = null;
   cloudRevision = null;
@@ -656,7 +764,8 @@ export async function logoutSecurely() {
   emit();
 }
 
-export async function completeCloudLogin() {
+export async function completeCloudLogin(options: { recordLoginEvent?: boolean } = {}) {
+  const recordLoginEvent = options.recordLoginEvent ?? true;
   if (!isBrowser() || (!isSupabaseConfigured() && !cloudSessionIOIsTestOverride)) return false;
   const identity = await cloudSessionIO.getIdentity();
   if (!identity) return false;
@@ -695,6 +804,49 @@ export async function completeCloudLogin() {
   const confirmedIdentity = await cloudSessionIO.getIdentity();
   if (!confirmedIdentity || confirmedIdentity.id !== identity.id) return false;
 
+  const sessionForContext = sessionForCloudContext(identity, context);
+  const samePermissionProjection =
+    currentSession?.role === sessionForContext.role &&
+    (Object.keys(DEFAULT_RECEPTIONIST_PERMISSIONS) as Array<keyof ReceptionistPermissions>).every(
+      (permission) =>
+        currentSession?.permissions?.[permission] === sessionForContext.permissions?.[permission],
+    );
+  // Revalidation only needs the small, auth-checked context RPC when this
+  // exact workspace revision is already loaded. If permissions changed,
+  // pending edits exist, or an older RPC omits its revision, keep the full
+  // workspace load below so its projection and conflict safeguards still run.
+  if (
+    sameOwner &&
+    !hadPendingCloudSave &&
+    !currentSession?.offlineMode &&
+    samePermissionProjection &&
+    currentSession?.cloudUserId === identity.id &&
+    currentSession.gymId === context.gymId &&
+    context.workspaceRevision !== null &&
+    context.workspaceRevision !== undefined &&
+    context.workspaceRevision === cloudRevision &&
+    cloudOwnerId === identity.id &&
+    cloudGymId === context.gymId &&
+    state !== null &&
+    !cloudSaveTimer &&
+    !cloudSyncPending
+  ) {
+    currentSession = sessionForContext;
+    setGymSubscriptionSnapshot({
+      status: currentSession.subscriptionStatus ?? "free",
+      source: currentSession.subscriptionSource ?? null,
+      currentPeriodEnd: currentSession.subscriptionCurrentPeriodEnd ?? null,
+    });
+    validatedCloudSession = {
+      ownerId: identity.id,
+      gymId: context.gymId,
+      validatedAt: Date.now(),
+    };
+    notifySyncStatus();
+    emit();
+    return true;
+  }
+
   if (sameOwner && hadPendingCloudSave && context.gymId !== gymAtStart) {
     if (cloudSaveTimer) {
       clearTimeout(cloudSaveTimer);
@@ -728,9 +880,16 @@ export async function completeCloudLogin() {
           },
         }),
       );
-      await cloudSessionIO.recordAuditEvent("login").catch(() => undefined);
+      if (recordLoginEvent) {
+        await cloudSessionIO.recordAuditEvent("login").catch(() => undefined);
+      }
       notifySyncStatus();
       emit();
+      validatedCloudSession = {
+        ownerId: identity.id,
+        gymId: context.gymId,
+        validatedAt: Date.now(),
+      };
       return true;
     }
   }
@@ -742,14 +901,12 @@ export async function completeCloudLogin() {
   cloudOwnerId = identity.id;
   const workspace = await cloudSessionIO.loadWorkspace();
   if (workspace?.state?.version === 1) {
-    const cached = isTauri()
-      ? await readOfflineWorkspace(identity.id).catch(() => null)
-      : null;
+    const cached = isTauri() ? await readOfflineWorkspace(identity.id).catch(() => null) : null;
     const resumePendingOfflineChanges = Boolean(
       cached &&
-        cachedWorkspaceIsValid(cached, identity.id) &&
-        cached.gymId === workspace.gymId &&
-        cached.syncPending,
+      cachedWorkspaceIsValid(cached, identity.id) &&
+      cached.gymId === workspace.gymId &&
+      cached.syncPending,
     );
     const serverState = stateFromCloudWorkspace(workspace.state);
     const cloudState = resumePendingOfflineChanges ? cached!.state : serverState;
@@ -843,6 +1000,11 @@ export async function completeCloudLogin() {
                 locked: expense.locked !== false,
               })),
               inquiries: latest.state.inquiries ?? [],
+              attendance: latest.state.attendance ?? [],
+              productCategories: normalizeProductCategories(
+                latest.state.productCategories,
+                latest.state.products,
+              ),
               staff: sanitizedStaff(latest.state.staff),
             };
             cloudRevision = latest.revision;
@@ -887,7 +1049,14 @@ export async function completeCloudLogin() {
     cloudSyncPending = false;
     void queueOfflineWorkspaceSave();
   }
-  await cloudSessionIO.recordAuditEvent("login").catch(() => undefined);
+  if (recordLoginEvent) {
+    await cloudSessionIO.recordAuditEvent("login").catch(() => undefined);
+  }
+  validatedCloudSession = {
+    ownerId: identity.id,
+    gymId: context.gymId,
+    validatedAt: Date.now(),
+  };
   notifySyncStatus();
   emit();
   return true;
@@ -909,8 +1078,32 @@ export async function validateCurrentSession() {
     );
   }
   if (!window.navigator.onLine) return restoreOfflineSession();
+  const currentOwnerId = currentSession?.cloudUserId;
+  const currentGymId = currentSession?.gymId;
+  const hasCurrentWorkspace = Boolean(
+    currentOwnerId &&
+    currentGymId &&
+    state &&
+    cloudOwnerId === currentOwnerId &&
+    cloudGymId === currentGymId &&
+    cloudRevision !== null,
+  );
+  const cachedValidation = validatedCloudSession;
+  if (
+    hasCurrentWorkspace &&
+    cachedValidation &&
+    cachedValidation.ownerId === currentOwnerId &&
+    cachedValidation.gymId === currentGymId &&
+    Date.now() - cachedValidation.validatedAt < CLOUD_SESSION_REVALIDATION_TTL_MS
+  ) {
+    return true;
+  }
+  if (cloudSessionValidationPromise) return cloudSessionValidationPromise;
+
+  const validation = completeCloudLogin({ recordLoginEvent: false });
+  cloudSessionValidationPromise = validation;
   try {
-    return await completeCloudLogin();
+    return await validation;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     const isConnectivityFailure =
@@ -919,6 +1112,8 @@ export async function validateCurrentSession() {
       (error instanceof Error && /FetchError|NetworkError/i.test(error.name));
     if (isTauri() && isConnectivityFailure && (await restoreOfflineSession())) return true;
     throw error;
+  } finally {
+    if (cloudSessionValidationPromise === validation) cloudSessionValidationPromise = null;
   }
 }
 
@@ -1020,7 +1215,9 @@ const TEMPLATE_DATA_KEYS = [
   "plans",
   "memberships",
   "payments",
+  "attendance",
   "products",
+  "productCategories",
   "sales",
   "activities",
   "expenses",
@@ -1059,6 +1256,10 @@ function freshTemplateMemberIds(template: GymState): GymState {
       ...sale,
       memberId: remapMemberId(sale.memberId),
     })),
+    attendance: (template.attendance ?? []).map((record) => ({
+      ...record,
+      memberId: remapMemberId(record.memberId)!,
+    })),
   };
 }
 
@@ -1091,11 +1292,17 @@ function isMergeableWorkspace(value: unknown): value is GymState {
       "expenses",
       "inquiries",
       "readNotifications",
-    ].every((key) => Array.isArray(value[key])) && Number.isSafeInteger(value.invoiceSeq)
+    ].every((key) => Array.isArray(value[key])) &&
+    (value.attendance === undefined || Array.isArray(value.attendance)) &&
+    (value.productCategories === undefined ||
+      (Array.isArray(value.productCategories) &&
+        value.productCategories.every((category) => typeof category === "string"))) &&
+    Number.isSafeInteger(value.invoiceSeq)
   );
 }
 
-type WorkspaceMergeResult = { state: GymState; conflicts: [] } | { state: null; conflicts: string[] };
+type WorkspaceMergeResult =
+  { state: GymState; conflicts: [] } | { state: null; conflicts: string[] };
 type ValueMergeResult = { value: unknown; conflicts: string[] };
 
 function valuesEqual(left: unknown, right: unknown): boolean {
@@ -1129,6 +1336,25 @@ function mergeThreeWayValue(
     return { value, conflicts };
   }
 
+  if (
+    path === "productCategories" &&
+    Array.isArray(base) &&
+    Array.isArray(local) &&
+    Array.isArray(remote) &&
+    [base, local, remote].every((items) => items.every((item) => typeof item === "string"))
+  ) {
+    const ordered = [...remote, ...local, ...base] as string[];
+    const categories: string[] = [];
+    for (const category of new Set(ordered)) {
+      const wasPresent = base.includes(category);
+      const isLocal = local.includes(category);
+      const isRemote = remote.includes(category);
+      const keep = isLocal === wasPresent ? isRemote : isRemote === wasPresent ? isLocal : isLocal;
+      if (keep) categories.push(category);
+    }
+    return { value: categories, conflicts: [] };
+  }
+
   if (Array.isArray(base) && Array.isArray(local) && Array.isArray(remote)) {
     const arrays = [base, local, remote];
     const areIdArrays = arrays.every((items) =>
@@ -1136,9 +1362,7 @@ function mergeThreeWayValue(
     );
     if (areIdArrays) {
       const toMap = (items: unknown[]) =>
-        new Map(
-          (items as Array<Record<string, unknown>>).map((item) => [item.id as string, item]),
-        );
+        new Map((items as Array<Record<string, unknown>>).map((item) => [item.id as string, item]));
       const maps = arrays.map(toMap);
       if (maps.some((map, index) => map.size !== arrays[index]!.length)) {
         return { value: remote, conflicts: [`${path} (duplicate record id)`] };
@@ -1154,12 +1378,33 @@ function mergeThreeWayValue(
       const value: unknown[] = [];
       const conflicts: string[] = [];
       for (const id of new Set(orderedIds)) {
-        const result = mergeThreeWayValue(
+        const localRecord = localById.get(id);
+        const remoteRecord = remoteById.get(id);
+        let result = mergeThreeWayValue(
           baseById.get(id),
-          localById.get(id),
-          remoteById.get(id),
+          localRecord,
+          remoteRecord,
           `${path}[${id}]`,
         );
+        if (
+          path === "attendance" &&
+          result.conflicts.length > 0 &&
+          isPlainRecord(localRecord) &&
+          isPlainRecord(remoteRecord) &&
+          typeof localRecord.checkedInAt === "string" &&
+          typeof remoteRecord.checkedInAt === "string"
+        ) {
+          // Concurrent check-ins for the same member/day represent one real
+          // visit. Retain a deterministic snapshot instead of failing the
+          // entire workspace sync on two slightly different timestamps.
+          const localTime = Date.parse(localRecord.checkedInAt);
+          const remoteTime = Date.parse(remoteRecord.checkedInAt);
+          const keepLocal =
+            Number.isFinite(localTime) && Number.isFinite(remoteTime)
+              ? localTime <= remoteTime
+              : stableJson(localRecord) <= stableJson(remoteRecord);
+          result = { value: keepLocal ? localRecord : remoteRecord, conflicts: [] };
+        }
         if (result.value !== undefined) value.push(result.value);
         conflicts.push(...result.conflicts);
       }
@@ -1170,9 +1415,7 @@ function mergeThreeWayValue(
     // as read is monotonic, so union is safe only when neither side removed an
     // existing ID (template reset/removal still produces a conflict).
     const baseValues = new Set(base);
-    if (
-      [...baseValues].every((item) => local.includes(item) && remote.includes(item))
-    ) {
+    if ([...baseValues].every((item) => local.includes(item) && remote.includes(item))) {
       return { value: Array.from(new Set([...remote, ...local])), conflicts: [] };
     }
   }
@@ -1192,7 +1435,8 @@ function workspaceRelationshipIssues(workspace: GymState): string[] {
     if (!planIds.has(membership.planId)) issues.push(`membership:${membership.id}:plan`);
   }
   for (const payment of workspace.payments) {
-    if (payment.memberId && !memberIds.has(payment.memberId)) issues.push(`payment:${payment.id}:member`);
+    if (payment.memberId && !memberIds.has(payment.memberId))
+      issues.push(`payment:${payment.id}:member`);
     if (payment.membershipId && !membershipIds.has(payment.membershipId)) {
       issues.push(`payment:${payment.id}:membership`);
     }
@@ -1200,6 +1444,9 @@ function workspaceRelationshipIssues(workspace: GymState): string[] {
   }
   for (const sale of workspace.sales) {
     if (sale.memberId && !memberIds.has(sale.memberId)) issues.push(`sale:${sale.id}:member`);
+  }
+  for (const record of workspace.attendance ?? []) {
+    if (!memberIds.has(record.memberId)) issues.push(`attendance:${record.id}:member`);
   }
   return issues;
 }
@@ -1250,7 +1497,7 @@ function hasSameTemplateBusinessData(left: GymState, right: GymState): boolean {
 export async function retryCloudSync() {
   if (!isBrowser() || !window.navigator.onLine) return false;
   if (!currentSession || !state) return false;
-  const authenticated = await completeCloudLogin();
+  const authenticated = await completeCloudLogin({ recordLoginEvent: false });
   return authenticated && !cloudSyncPending;
 }
 
@@ -1310,13 +1557,20 @@ export async function saveReceptionistAccount(input: {
 /* Activity log                                                        */
 /* ------------------------------------------------------------------ */
 
-function log(st: GymState, type: ActivityType, title: string, description: string): GymState {
+function log(
+  st: GymState,
+  type: ActivityType,
+  title: string,
+  description: string,
+  memberId?: string | null,
+): GymState {
   const activity: Activity = {
     id: uid("act"),
     type,
     title,
     description,
     date: iso(new Date()),
+    ...(memberId ? { memberId } : {}),
   };
   return { ...st, activities: [activity, ...st.activities].slice(0, 300) };
 }
@@ -1375,10 +1629,7 @@ export function addMember(input: NewMemberInput) {
     try {
       const price = normalizeMoney(plan.price);
       const discount = Math.min(Math.max(0, normalizeMoney(input.discount ?? 0)), price);
-      const joiningFee = Math.max(
-        0,
-        normalizeMoney(input.joiningFee ?? plan.joiningFee ?? 1000),
-      );
+      const joiningFee = Math.max(0, normalizeMoney(input.joiningFee ?? plan.joiningFee ?? 1000));
       addMoney(subtractMoney(price, discount), joiningFee);
       normalizeMoney(input.paidNow ?? 0);
     } catch {
@@ -1394,6 +1645,7 @@ export function addMember(input: NewMemberInput) {
     const member: Member = {
       id,
       type: "member",
+      shift: input.shift ?? null,
       name: input.name,
       email: input.email,
       phone: phoneForCountry(input.phone, st.settings.phoneCountry),
@@ -1410,7 +1662,7 @@ export function addMember(input: NewMemberInput) {
     };
     let next: GymState = { ...st, members: [member, ...st.members] };
     created = true;
-    next = log(next, "member_added", "New member registered", `${member.name} joined the gym`);
+    next = log(next, "member_added", "New member registered", `${member.name} joined the gym`, id);
 
     if (input.planId) {
       const plan = next.plans.find((p) => p.id === input.planId);
@@ -1457,12 +1709,14 @@ export function addMember(input: NewMemberInput) {
             "payment_received",
             "Payment received",
             `₹${paidNow.toLocaleString("en-IN")} from ${member.name}`,
+            id,
           );
           next = log(
             next,
             "invoice_generated",
             "Invoice generated",
             `${invoiceNo} for ${member.name}`,
+            id,
           );
         }
       }
@@ -1471,6 +1725,103 @@ export function addMember(input: NewMemberInput) {
   });
   if (created && createdId) auditCloud("member_created", "member", createdId);
   return created;
+}
+
+export type CheckInResult = "saved" | "already_checked_in" | "member_unavailable" | "read_only";
+
+/** Record one local-calendar-day check-in for a registered member. */
+export function checkInMember(memberId: string, at = new Date()): CheckInResult {
+  if (!Number.isFinite(at.getTime())) return "member_unavailable";
+  const date = localDateInput(at);
+  const current = getState();
+  const member = current.members.find(
+    (item) => item.id === memberId && !item.deletedAt && item.type !== "walk_in",
+  );
+  if (!member) return "member_unavailable";
+  if ((current.attendance ?? []).some((record) => record.id === `${date}:${memberId}`)) {
+    return "already_checked_in";
+  }
+
+  let outcome: CheckInResult = "saved";
+  const saved = setState((workspace) => {
+    const attendance = workspace.attendance ?? [];
+    if (attendance.some((record) => record.id === `${date}:${memberId}`)) {
+      outcome = "already_checked_in";
+      return workspace;
+    }
+    const currentMember = workspace.members.find(
+      (item) => item.id === memberId && !item.deletedAt && item.type !== "walk_in",
+    );
+    if (!currentMember) {
+      outcome = "member_unavailable";
+      return workspace;
+    }
+    const record: AttendanceRecord = {
+      id: `${date}:${memberId}`,
+      memberId,
+      memberName: currentMember.name,
+      memberPhone: currentMember.phone,
+      shift: currentMember.shift ?? null,
+      date,
+      checkedInAt: at.toISOString(),
+    };
+    return { ...workspace, attendance: [record, ...attendance] };
+  });
+  if (!saved) return "read_only";
+  if (outcome === "saved") auditCloud("attendance_checked_in", "member", memberId, { date });
+  return outcome;
+}
+
+export type DeleteAttendanceResult = "deleted" | "not_found" | "read_only";
+
+/** Move one check-in out of attendance history and into Trash. */
+export function deleteAttendanceRecord(recordId: string): DeleteAttendanceResult {
+  const record = (getState().attendance ?? []).find(
+    (item) => item.id === recordId && !item.deletedAt,
+  );
+  if (!record) return "not_found";
+
+  const deletedAt = iso(new Date());
+  const deletedBy = getCurrentSession()?.name || "Admin";
+  const saved = setState((workspace) => {
+    if (!(workspace.attendance ?? []).some((item) => item.id === recordId && !item.deletedAt)) {
+      return workspace;
+    }
+    return {
+      ...workspace,
+      attendance: (workspace.attendance ?? []).map((item) =>
+        item.id === recordId ? { ...item, deletedAt, deletedBy } : item,
+      ),
+    };
+  });
+  if (!saved) return "read_only";
+
+  auditCloud("attendance_deleted", "attendance", record.id, {
+    member_id: record.memberId,
+    date: record.date,
+    shift: record.shift ?? "unassigned",
+  });
+  return "deleted";
+}
+
+export function restoreAttendanceRecord(recordId: string) {
+  if (!(getState().attendance ?? []).some((item) => item.id === recordId && item.deletedAt))
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    attendance: (workspace.attendance ?? []).map((item) =>
+      item.id === recordId ? { ...item, deletedAt: null, deletedBy: null } : item,
+    ),
+  }));
+}
+
+export function deleteAttendancePermanently(recordId: string) {
+  if (!(getState().attendance ?? []).some((item) => item.id === recordId && item.deletedAt))
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    attendance: (workspace.attendance ?? []).filter((item) => item.id !== recordId),
+  }));
 }
 
 export function updateMember(id: string, patch: Partial<Member>) {
@@ -1522,6 +1873,7 @@ export function trashMember(id: string, by: string) {
       "member_trashed",
       "Member moved to trash",
       `${member?.name ?? "Member"} moved to trash`,
+      id,
     );
   });
   if (!saved) return false;
@@ -1555,6 +1907,7 @@ export function restoreMember(id: string) {
       "member_restored",
       "Member restored",
       `${member?.name ?? "Member"} restored from trash`,
+      id,
     );
   });
 }
@@ -1568,6 +1921,7 @@ export function deleteMemberPermanently(id: string) {
     const next: GymState = {
       ...st,
       members: st.members.filter((m) => m.id !== id),
+      attendance: (st.attendance ?? []).filter((record) => record.memberId !== id),
       memberships: st.memberships.filter((m) => m.memberId !== id),
       payments: st.payments.filter(
         (payment) =>
@@ -1607,7 +1961,12 @@ export function updateNote(
   noteId: string,
   patch: { title: string; note: string },
 ) {
-  if (!getState().members.some((member) => member.id === memberId && member.notes.some((entry) => entry.id === noteId))) return false;
+  if (
+    !getState().members.some(
+      (member) => member.id === memberId && member.notes.some((entry) => entry.id === noteId),
+    )
+  )
+    return false;
   return setState((st) => ({
     ...st,
     members: st.members.map((m) =>
@@ -1626,62 +1985,16 @@ export function updateNote(
 }
 
 export function deleteNote(memberId: string, noteId: string) {
-  if (!getState().members.some((member) => member.id === memberId && member.notes.some((entry) => entry.id === noteId))) return false;
+  if (
+    !getState().members.some(
+      (member) => member.id === memberId && member.notes.some((entry) => entry.id === noteId),
+    )
+  )
+    return false;
   return setState((st) => ({
     ...st,
     members: st.members.map((m) =>
       m.id === memberId ? { ...m, notes: m.notes.filter((entry) => entry.id !== noteId) } : m,
-    ),
-  }));
-}
-
-export function addMeasurement(
-  memberId: string,
-  data: Omit<Member["measurements"][number], "id" | "date">,
-) {
-  if (!getState().members.some((member) => member.id === memberId && !member.deletedAt)) return false;
-  return setState((st) => ({
-    ...st,
-    members: st.members.map((m) =>
-      m.id === memberId
-        ? {
-            ...m,
-            measurements: [{ id: uid("msr"), date: iso(new Date()), ...data }, ...m.measurements],
-          }
-        : m,
-    ),
-  }));
-}
-
-export function updateMeasurement(
-  memberId: string,
-  measurementId: string,
-  data: Omit<Member["measurements"][number], "id" | "date">,
-) {
-  if (!getState().members.some((member) => member.id === memberId && member.measurements.some((entry) => entry.id === measurementId))) return false;
-  return setState((st) => ({
-    ...st,
-    members: st.members.map((m) =>
-      m.id === memberId
-        ? {
-            ...m,
-            measurements: m.measurements.map((entry) =>
-              entry.id === measurementId ? { ...entry, ...data } : entry,
-            ),
-          }
-        : m,
-    ),
-  }));
-}
-
-export function deleteMeasurement(memberId: string, measurementId: string) {
-  if (!getState().members.some((member) => member.id === memberId && member.measurements.some((entry) => entry.id === measurementId))) return false;
-  return setState((st) => ({
-    ...st,
-    members: st.members.map((m) =>
-      m.id === memberId
-        ? { ...m, measurements: m.measurements.filter((entry) => entry.id !== measurementId) }
-        : m,
     ),
   }));
 }
@@ -1709,7 +2022,8 @@ export function savePlan(plan: Omit<Plan, "id"> & { id?: string }) {
     price: normalizeMoney(plan.price),
     joiningFee: normalizeMoney(plan.joiningFee ?? 0),
   };
-  if (normalizedPlan.id && !getState().plans.some((item) => item.id === normalizedPlan.id)) return false;
+  if (normalizedPlan.id && !getState().plans.some((item) => item.id === normalizedPlan.id))
+    return false;
   return setState((st) =>
     normalizedPlan.id
       ? {
@@ -1760,7 +2074,20 @@ export function renewMembership(
   paidNow: number,
   discount = 0,
   paymentMethod: Payment["method"] = "cash",
+  startDate?: string,
 ) {
+  const requestedStartDate =
+    startDate === undefined ? undefined : new Date(`${startDate}T00:00:00`);
+  if (
+    startDate !== undefined &&
+    (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
+      !requestedStartDate ||
+      !Number.isFinite(requestedStartDate.getTime()) ||
+      localDateInput(requestedStartDate) !== startDate)
+  ) {
+    return false;
+  }
+
   const before = getState();
   const selectedPlan = before.plans.find((item) => item.id === planId && !item.deletedAt);
   const selectedMember = before.members.find(
@@ -1784,8 +2111,11 @@ export function renewMembership(
     const current = st.memberships
       .filter((m) => m.memberId === memberId)
       .sort((a, b) => +new Date(b.endDate) - +new Date(a.endDate))[0];
-    const base =
-      current && new Date(current.endDate) > new Date() ? new Date(current.endDate) : new Date();
+    const base = requestedStartDate
+      ? new Date(requestedStartDate)
+      : current && new Date(current.endDate) > new Date()
+        ? new Date(current.endDate)
+        : new Date();
     const end = membershipEndDate(base, plan);
     const membership: Membership = {
       id: uid("mship"),
@@ -1810,7 +2140,10 @@ export function renewMembership(
       next,
       "membership_renewed",
       "Membership renewed",
-      `${member.name} renewed ${plan.name} · ${plan.durationDays} days`,
+      `${member.name} renewed ${plan.name} · ${plan.durationDays} days starting ${formatShortDate(
+        base,
+      )}`,
+      memberId,
     );
     if (collected > 0) {
       const [withSeq, invoiceNo] = nextInvoice(next);
@@ -1836,6 +2169,7 @@ export function renewMembership(
         "payment_received",
         "Payment received",
         `₹${collected.toLocaleString("en-IN")} from ${member.name}`,
+        memberId,
       );
     }
     return next;
@@ -1843,6 +2177,146 @@ export function renewMembership(
   if (!saved || !renewedMembershipId) return false;
   auditCloud("membership_renewed", "membership", renewedMembershipId, { member_id: memberId });
   return true;
+}
+
+export type UnpaidMembershipChangeResult =
+  "saved" | "not_found" | "payments_linked" | "membership_frozen" | "invalid" | "read_only";
+
+/** Correct an unpaid membership term without changing its stable record ID. */
+export function correctUnpaidMembership(input: {
+  membershipId: string;
+  planId: string;
+  startDate: string;
+  discount: number;
+  joiningFee: number;
+  reason: string;
+}): UnpaidMembershipChangeResult {
+  const current = getState();
+  const membership = current.memberships.find((item) => item.id === input.membershipId);
+  if (!membership) return "not_found";
+  if (current.payments.some((payment) => payment.membershipId === membership.id)) {
+    return "payments_linked";
+  }
+  if (membership.frozen) return "membership_frozen";
+
+  const plan = current.plans.find((item) => item.id === input.planId && !item.deletedAt);
+  const startDate = input.startDate.trim();
+  const reason = input.reason.trim();
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(startDate)
+    ? new Date(`${startDate}T00:00:00`)
+    : new Date(Number.NaN);
+  if (
+    !plan ||
+    !isPositiveMoneyAmount(plan.price) ||
+    !Number.isFinite(start.getTime()) ||
+    localDateInput(start) !== startDate ||
+    !isSafeMoneyAmount(input.discount) ||
+    input.discount < 0 ||
+    input.discount > plan.price ||
+    !isSafeMoneyAmount(input.joiningFee) ||
+    input.joiningFee < 0 ||
+    reason.length < 5 ||
+    reason.length > 500
+  ) {
+    return "invalid";
+  }
+
+  try {
+    addMoney(subtractMoney(plan.price, input.discount), input.joiningFee);
+  } catch {
+    return "invalid";
+  }
+
+  const saved = setState((workspace) => {
+    const before = workspace.memberships.find((item) => item.id === membership.id);
+    const nextPlan = workspace.plans.find((item) => item.id === input.planId && !item.deletedAt);
+    if (
+      !before ||
+      workspace.payments.some((payment) => payment.membershipId === membership.id) ||
+      before.frozen ||
+      !nextPlan
+    ) {
+      return workspace;
+    }
+    const nextStart = new Date(`${startDate}T00:00:00`);
+    const corrected: Membership = {
+      ...before,
+      planId: nextPlan.id,
+      startDate: iso(nextStart),
+      endDate: iso(membershipEndDate(nextStart, nextPlan)),
+      price: normalizeMoney(nextPlan.price),
+      discount: normalizeMoney(input.discount),
+      joiningFee: normalizeMoney(input.joiningFee),
+    };
+    const oldPlanName =
+      workspace.plans.find((item) => item.id === before.planId)?.name ?? "Old plan";
+    const next = {
+      ...workspace,
+      memberships: workspace.memberships.map((item) =>
+        item.id === corrected.id ? corrected : item,
+      ),
+    };
+    return log(
+      next,
+      "membership_corrected",
+      "Unpaid membership corrected",
+      `${oldPlanName} changed to ${nextPlan.name} for ${reason}`,
+      before.memberId,
+    );
+  });
+  if (!saved) return "read_only";
+  auditCloud("membership_corrected", "membership", membership.id, {
+    old_plan_id: membership.planId,
+    new_plan_id: plan.id,
+    old_price: membership.price,
+    new_price: plan.price,
+    reason,
+  });
+  return "saved";
+}
+
+/** Remove only an unpaid, unfrozen term; paid receipt references are never deleted. */
+export function voidUnpaidMembership(
+  membershipId: string,
+  reason: string,
+): UnpaidMembershipChangeResult {
+  const current = getState();
+  const membership = current.memberships.find((item) => item.id === membershipId);
+  if (!membership) return "not_found";
+  if (current.payments.some((payment) => payment.membershipId === membershipId)) {
+    return "payments_linked";
+  }
+  if (membership.frozen) return "membership_frozen";
+  const trimmedReason = reason.trim();
+  if (trimmedReason.length < 5 || trimmedReason.length > 500) return "invalid";
+
+  const planName =
+    current.plans.find((item) => item.id === membership.planId)?.name ?? "Membership";
+  const saved = setState((workspace) => {
+    if (
+      !workspace.memberships.some((item) => item.id === membershipId) ||
+      workspace.payments.some((payment) => payment.membershipId === membershipId)
+    ) {
+      return workspace;
+    }
+    const next = {
+      ...workspace,
+      memberships: workspace.memberships.filter((item) => item.id !== membershipId),
+    };
+    return log(
+      next,
+      "membership_voided",
+      "Unpaid membership removed",
+      `${planName} removed for ${trimmedReason}`,
+      membership.memberId,
+    );
+  });
+  if (!saved) return "read_only";
+  auditCloud("membership_voided", "membership", membershipId, {
+    plan_id: membership.planId,
+    reason: trimmedReason,
+  });
+  return "saved";
 }
 
 export function toggleFreeze(membershipId: string) {
@@ -1873,6 +2347,7 @@ export function addPayment(input: {
   method: Payment["method"];
   date?: string;
   note?: string;
+  purpose?: Payment["purpose"];
 }) {
   if (!isPositiveMoneyAmount(input.amount)) return false;
   const state = getState();
@@ -1910,6 +2385,7 @@ export function addPayment(input: {
       method: input.method,
       date: input.date ?? iso(new Date()),
       note: input.note ?? "Manual payment entry",
+      ...(input.purpose ? { purpose: input.purpose } : {}),
     };
     paymentId = payment.id;
     let next: GymState = { ...withSeq, payments: [payment, ...withSeq.payments] };
@@ -1918,12 +2394,14 @@ export function addPayment(input: {
       "payment_received",
       "Payment received",
       `₹${amount.toLocaleString("en-IN")} from ${member.name}`,
+      input.memberId,
     );
     next = log(
       next,
       "invoice_generated",
       "Invoice generated",
       `${invoiceNo} created · ₹${amount.toLocaleString("en-IN")}`,
+      input.memberId,
     );
     return next;
   });
@@ -2035,6 +2513,7 @@ export function addSalePayment(
       "payment_received",
       "Payment received",
       `₹${amount.toLocaleString("en-IN")} from ${sale.buyer}`,
+      sale.memberId,
     );
     return next;
   });
@@ -2046,6 +2525,79 @@ export function addSalePayment(
 /* ------------------------------------------------------------------ */
 /* Products & sales                                                    */
 /* ------------------------------------------------------------------ */
+
+export function addProductCategory(value: string) {
+  const name = value.trim();
+  if (name.length < 2 || name.length > 40 || name.toLocaleLowerCase() === "all") return false;
+  const current = getState();
+  const existing = normalizeProductCategories(current.productCategories, current.products);
+  if (existing.some((category) => category.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    return false;
+  }
+  const saved = setState((st) => ({
+    ...st,
+    productCategories: [...normalizeProductCategories(st.productCategories, st.products), name],
+  }));
+  if (saved) {
+    auditCloud("settings_updated", "settings", cloudGymId ?? "gym", {
+      fields: "product_categories",
+      added: name,
+    });
+  }
+  return saved;
+}
+
+export function renameProductCategory(currentValue: string, nextValue: string) {
+  const currentName = currentValue.trim();
+  const nextName = nextValue.trim();
+  if (
+    currentName.length < 2 ||
+    currentName.length > 40 ||
+    nextName.length < 2 ||
+    nextName.length > 40 ||
+    nextName.toLocaleLowerCase() === "all"
+  ) {
+    return false;
+  }
+  const current = getState();
+  const categories = normalizeProductCategories(current.productCategories, current.products);
+  if (
+    !categories.some((category) => category.toLocaleLowerCase() === currentName.toLocaleLowerCase())
+  ) {
+    return false;
+  }
+  if (currentName === nextName) return true;
+  if (
+    categories.some(
+      (category) =>
+        category.toLocaleLowerCase() !== currentName.toLocaleLowerCase() &&
+        category.toLocaleLowerCase() === nextName.toLocaleLowerCase(),
+    )
+  ) {
+    return false;
+  }
+
+  const saved = setState((st) => ({
+    ...st,
+    productCategories: normalizeProductCategories(st.productCategories, st.products).map(
+      (category) =>
+        category.toLocaleLowerCase() === currentName.toLocaleLowerCase() ? nextName : category,
+    ),
+    products: st.products.map((product) =>
+      product.category.toLocaleLowerCase() === currentName.toLocaleLowerCase()
+        ? { ...product, category: nextName }
+        : product,
+    ),
+  }));
+  if (saved) {
+    auditCloud("settings_updated", "settings", cloudGymId ?? "gym", {
+      fields: "product_categories",
+      renamed_from: currentName,
+      renamed_to: nextName,
+    });
+  }
+  return saved;
+}
 
 export function saveProduct(product: Omit<Product, "id" | "createdAt"> & { id?: string }) {
   if (
@@ -2069,7 +2621,8 @@ export function saveProduct(product: Omit<Product, "id" | "createdAt"> & { id?: 
     stock: Math.max(0, Math.trunc(product.stock)),
     lowStockAt: Math.max(0, Math.trunc(product.lowStockAt)),
   };
-  if (normalizedProduct.id && !getState().products.some((item) => item.id === normalizedProduct.id)) return false;
+  if (normalizedProduct.id && !getState().products.some((item) => item.id === normalizedProduct.id))
+    return false;
   return setState((st) => {
     if (normalizedProduct.id) {
       return {
@@ -2167,8 +2720,10 @@ export function sellProduct(
       !Number.isSafeInteger(qty) ||
       product.stock < qty ||
       !Number.isSafeInteger(Math.round(product.price * 100) * qty) ||
-      (extra?.discount !== undefined && (!isSafeMoneyAmount(extra.discount) || extra.discount < 0)) ||
-      (extra?.amountPaid !== undefined && (!isSafeMoneyAmount(extra.amountPaid) || extra.amountPaid < 0))
+      (extra?.discount !== undefined &&
+        (!isSafeMoneyAmount(extra.discount) || extra.discount < 0)) ||
+      (extra?.amountPaid !== undefined &&
+        (!isSafeMoneyAmount(extra.amountPaid) || extra.amountPaid < 0))
     ) {
       return st;
     }
@@ -2278,12 +2833,14 @@ export function sellProduct(
       "product_sold",
       "Product sold",
       `${product.name} × ${qty} sold to ${sale.buyer}`,
+      sale.memberId,
     );
     next = log(
       next,
       "invoice_generated",
       "Invoice generated",
       `${invoiceNo} created for ${sale.buyer} · ₹${sale.total.toLocaleString("en-IN")}`,
+      sale.memberId,
     );
     return next;
   });
@@ -2356,11 +2913,13 @@ export function restoreBackup(json: string) {
   const parsed = JSON.parse(json) as GymState;
   const expenses = parsed?.expenses ?? [];
   const inquiries = parsed?.inquiries ?? [];
+  const attendance = parsed?.attendance ?? [];
   const arrays = [
     parsed?.members,
     parsed?.plans,
     parsed?.memberships,
     parsed?.payments,
+    attendance,
     parsed?.products,
     parsed?.sales,
     parsed?.activities,
@@ -2374,6 +2933,9 @@ export function restoreBackup(json: string) {
     !parsed.auth ||
     !parsed.settings ||
     !arrays.every(Array.isArray) ||
+    (parsed.productCategories !== undefined &&
+      (!Array.isArray(parsed.productCategories) ||
+        !parsed.productCategories.every((category) => typeof category === "string"))) ||
     !Number.isFinite(parsed.invoiceSeq)
   ) {
     throw new Error("Invalid backup file");
@@ -2396,6 +2958,19 @@ export function restoreBackup(json: string) {
         (!payment.saleId || saleIds.has(payment.saleId)),
     ) &&
     parsed.sales.every((sale) => !sale.memberId || memberIds.has(sale.memberId)) &&
+    attendance.every(
+      (record) =>
+        typeof record?.id === "string" &&
+        typeof record.memberId === "string" &&
+        memberIds.has(record.memberId) &&
+        typeof record.memberName === "string" &&
+        typeof record.memberPhone === "string" &&
+        (record.shift === null ||
+          (["morning", "evening"] as MemberShift[]).includes(record.shift)) &&
+        /^\d{4}-\d{2}-\d{2}$/.test(record.date) &&
+        record.id === `${record.date}:${record.memberId}` &&
+        Number.isFinite(Date.parse(record.checkedInAt)),
+    ) &&
     expenses.every((expense) => Number.isFinite(expense.amount) && expense.amount > 0);
   if (!valid) throw new Error("Backup contains broken record references");
 
@@ -2409,6 +2984,7 @@ export function restoreBackup(json: string) {
     ...parsed,
     expenses,
     inquiries,
+    attendance,
     staff: sanitizedStaff(parsed.staff),
     version: 1,
   }));
@@ -2424,6 +3000,7 @@ export function resetData() {
     plans: [],
     memberships: [],
     payments: [],
+    attendance: [],
     products: [],
     sales: [],
     activities: [],
@@ -2766,7 +3343,8 @@ export function trashExpense(id: string) {
 }
 
 export function restoreExpense(id: string) {
-  if (!(getState().expenses ?? []).some((expense) => expense.id === id && expense.deletedAt)) return false;
+  if (!(getState().expenses ?? []).some((expense) => expense.id === id && expense.deletedAt))
+    return false;
   return setState((st) => ({
     ...st,
     expenses: (st.expenses ?? []).map((e) => (e.id === id ? { ...e, deletedAt: null } : e)),

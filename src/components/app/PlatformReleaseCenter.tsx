@@ -169,9 +169,9 @@ export function PlatformReleaseCenter() {
           p_platform: platform,
           p_version: normalizedVersion,
           p_release_notes: normalizedNotes,
-          p_artifact_path: uploadedPath,
-          p_file_name: platform === "ios" ? null : safeFileName(file?.name ?? ""),
-          p_download_url: platform === "ios" ? iosUrl.trim() : null,
+          p_artifact_path: uploadedPath ?? undefined,
+          p_file_name: platform === "ios" ? undefined : safeFileName(file?.name ?? ""),
+          p_download_url: platform === "ios" ? iosUrl.trim() : undefined,
         });
       } catch {
         // A rejected fetch can mean the server committed but its reply was lost.

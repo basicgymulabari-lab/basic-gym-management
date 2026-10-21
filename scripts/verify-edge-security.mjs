@@ -1,9 +1,144 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
-const { HttpError, corsHeaders, parseJson, readLimitedBodyText } = await import(
-  "../supabase/functions/_shared/http.ts"
-);
+const { HttpError, corsHeaders, parseJson, readLimitedBodyText } =
+  await import("../supabase/functions/_shared/http.ts");
 const { addCspNonces } = await import("../src/lib/security/csp.ts");
+const { stripeRefundEntries } = await import("../supabase/functions/_shared/stripe-refunds.ts");
+
+const billingSource = await readFile(
+  new URL("../supabase/functions/_shared/billing.ts", import.meta.url),
+  "utf8",
+);
+const stripeWebhookSource = await readFile(
+  new URL("../supabase/functions/stripe-webhook/index.ts", import.meta.url),
+  "utf8",
+);
+const razorpayWebhookSource = await readFile(
+  new URL("../supabase/functions/razorpay-webhook/index.ts", import.meta.url),
+  "utf8",
+);
+const auditPermissionMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20261018130000_harden_tenant_audit_event_permissions.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const membershipPlanValidationMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20261019100000_validate_membership_plan_data.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const tenantIsolationTests = await readFile(
+  new URL("../supabase/tests/tenant_isolation.sql", import.meta.url),
+  "utf8",
+);
+assert.deepEqual(
+  stripeRefundEntries({
+    amount_refunded: 1500,
+    refunds: {
+      data: [
+        { id: "re_first", amount: 500 },
+        { id: "re_second", amount: 1000 },
+      ],
+    },
+  }),
+  [
+    { id: "re_first", amount: 500 },
+    { id: "re_second", amount: 1000 },
+  ],
+  "Stripe charge refunds must preserve each partial refund instead of recording only the first",
+);
+assert.deepEqual(
+  stripeRefundEntries({ amount_refunded: 700, created: 123 }),
+  [{ amount: 700, created: 123 }],
+  "Stripe charge aggregate remains a fallback when refund detail is absent",
+);
+assert.deepEqual(
+  stripeRefundEntries({ amount_refunded: 0, refunds: { data: [] } }),
+  [],
+  "charges without refunds must not create refund rows",
+);
+assert.ok(
+  stripeWebhookSource.includes('typeof object.payment_intent === "string"'),
+  "Stripe refund matching must fall back to the PaymentIntent identifier",
+);
+assert.ok(
+  stripeWebhookSource.includes("paymentId: existing.provider_payment_id"),
+  "refund rows must use the payment identifier of their matched source transaction",
+);
+assert.ok(
+  stripeWebhookSource.includes("if (!existingRefundIds.has(refundId))"),
+  "repeated charge snapshots must not duplicate refund audit events",
+);
+assert.match(
+  billingSource,
+  /if \(error\)\s*\{\s*throw new HttpError\("Could not record the billing transaction\.", 502, "BILLING_TRANSACTION_UPDATE_FAILED"\);/,
+  "billing transaction write failures must propagate so webhooks are retried",
+);
+assert.match(
+  billingSource,
+  /if \(error\)\s*\{\s*throw new HttpError\("Could not verify the subscription owner\.", 502, "ENTITLEMENT_LOOKUP_FAILED"\);/,
+  "subscription lookup failures must not be mistaken for unknown subscriptions",
+);
+for (const [provider, source] of [
+  ["Stripe", stripeWebhookSource],
+  ["Razorpay", razorpayWebhookSource],
+]) {
+  assert.match(
+    source,
+    /if \(lookupError\)\s*\{\s*throw new HttpError\(\s*"Could not find the billing transaction to refund\.",\s*502,\s*"BILLING_TRANSACTION_LOOKUP_FAILED",\s*\);/,
+    `${provider} refund lookup failures must propagate for provider retry`,
+  );
+}
+assert.match(
+  auditPermissionMigration,
+  /p_action in \('settings_updated', 'backup_restored', 'staff_updated'\)\s+then\s+v_allowed := v_membership\.role = 'owner'/,
+  "owner-sensitive audit events must reject receptionist accounts",
+);
+assert.match(
+  auditPermissionMigration,
+  /'attendance_checked_in', 'attendance_deleted'[\s\S]*?iv_has_permission\(v_membership\.permissions, 'members'\)/,
+  "attendance audit events must require the members permission for staff",
+);
+assert.match(
+  auditPermissionMigration,
+  /v_asset_gym_id = v_membership\.gym_id::text[\s\S]*?AUDIT_ACTION_FORBIDDEN/,
+  "private-asset audit events must remain inside the caller's gym",
+);
+assert.match(
+  membershipPlanValidationMigration,
+  /perform public\.iv_validate_membership_plans\(new\.state\)/,
+  "workspace writes must validate membership plan data inside the database trigger",
+);
+assert.ok(
+  membershipPlanValidationMigration.includes(
+    "jsonb_typeof(plan -> 'name') is distinct from 'string'",
+  ) &&
+    membershipPlanValidationMigration.includes("round((plan ->> 'price')::numeric * 100) <= 0") &&
+    membershipPlanValidationMigration.includes(
+      "round((plan ->> 'joiningFee')::numeric * 100) < 0",
+    ) &&
+    membershipPlanValidationMigration.includes("durationDays"),
+  "membership plan validation must bound price, joining fees, and duration",
+);
+assert.match(
+  tenantIsolationTests,
+  /INVALID_PLAN_DATA[\s\S]*?receptionists cannot persist invalid membership plan prices/,
+  "tenant SQL regression tests must cover invalid plan prices submitted by receptionists",
+);
+const plannedSqlAssertions = Number(tenantIsolationTests.match(/select plan\((\d+)\);/)?.[1]);
+const actualSqlAssertions = [
+  ...tenantIsolationTests.matchAll(/^select (?:throws_ok|is\(|isnt\(|ok\(|lives_ok\()/gm),
+].length;
+assert.equal(
+  plannedSqlAssertions,
+  actualSqlAssertions,
+  "tenant isolation pgTAP plan must match its assertion count",
+);
 
 const testEnvironment = new Map([
   ["APP_ORIGIN", "https://ironvault-gym.pages.dev"],
@@ -43,12 +178,18 @@ const originalCsp =
   "default-src 'self'; script-src 'self' 'unsafe-inline' https://checkout.razorpay.com; style-src 'self'; style-src-attr 'unsafe-inline'";
 const nonceCsp = addCspNonces(originalCsp, "MTIzNDU2Nzg5MDEyMzQ1Njc4");
 assert.ok(nonceCsp);
-assert.match(nonceCsp, /script-src 'self' https:\/\/checkout\.razorpay\.com 'nonce-MTIzNDU2Nzg5MDEyMzQ1Njc4'/);
+assert.match(
+  nonceCsp,
+  /script-src 'self' https:\/\/checkout\.razorpay\.com 'nonce-MTIzNDU2Nzg5MDEyMzQ1Njc4'/,
+);
 assert.doesNotMatch(nonceCsp, /script-src[^;]*'unsafe-inline'/);
 assert.match(nonceCsp, /style-src 'self' 'nonce-MTIzNDU2Nzg5MDEyMzQ1Njc4'/);
 assert.match(nonceCsp, /style-src-attr 'unsafe-inline'/);
 assert.equal(addCspNonces(originalCsp, "nonce;inject"), null);
-assert.equal(addCspNonces("default-src 'self'; script-src 'self'", "MTIzNDU2Nzg5MDEyMzQ1Njc4"), null);
+assert.equal(
+  addCspNonces("default-src 'self'; script-src 'self'", "MTIzNDU2Nzg5MDEyMzQ1Njc4"),
+  null,
+);
 
 function streamingRequest(chunks, headers = {}) {
   let index = 0;
@@ -102,7 +243,7 @@ await assert.rejects(parseJson(declaredTooLarge.request), (error) => {
   return true;
 });
 
-const invalidJson = streamingRequest(["{"] , { "content-type": "application/json" });
+const invalidJson = streamingRequest(["{"], { "content-type": "application/json" });
 await assert.rejects(parseJson(invalidJson.request), (error) => {
   assert.ok(error instanceof HttpError);
   assert.equal(error.status, 400);
@@ -118,4 +259,6 @@ await assert.rejects(parseJson(nonJson.request), (error) => {
   return true;
 });
 
-console.log("Edge request security tests passed (bounded streams, JSON validation, and safe errors).");
+console.log(
+  "Security checks passed (bounded requests, safe errors, webhook persistence, multi-refund handling, and authorization contracts).",
+);
