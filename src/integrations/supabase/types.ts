@@ -1,788 +1,155 @@
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15";
-  };
+    PostgrestVersion: "14.15"
+  }
   public: {
     Tables: {
-      gym_workspaces: {
-        Row: {
-          id: string;
-          owner_id: string;
-          gym_id: string;
-          state: Json;
-          revision: number;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          owner_id: string;
-          gym_id: string;
-          state?: Json;
-          revision?: number;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          owner_id?: string;
-          gym_id?: string;
-          state?: Json;
-          revision?: number;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      gyms: {
-        Row: {
-          id: string;
-          owner_user_id: string;
-          name: string;
-          subscription_plan: string;
-          subscription_status: string;
-          trial_ends_at: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          owner_user_id: string;
-          name: string;
-          subscription_plan?: string;
-          subscription_status?: string;
-          trial_ends_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          owner_user_id?: string;
-          name?: string;
-          subscription_plan?: string;
-          subscription_status?: string;
-          trial_ends_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      gym_users: {
-        Row: {
-          gym_id: string;
-          user_id: string;
-          role: string;
-          display_name: string;
-          email: string;
-          enabled: boolean;
-          permissions: Json;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          gym_id: string;
-          user_id: string;
-          role: string;
-          display_name?: string;
-          email?: string;
-          enabled?: boolean;
-          permissions?: Json;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          gym_id?: string;
-          user_id?: string;
-          role?: string;
-          display_name?: string;
-          email?: string;
-          enabled?: boolean;
-          permissions?: Json;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      audit_logs: {
-        Row: {
-          id: number;
-          gym_id: string;
-          user_id: string | null;
-          role: string;
-          action: string;
-          entity_type: string | null;
-          entity_id: string | null;
-          metadata: Json;
-          created_at: string;
-        };
-        Insert: {
-          id?: number;
-          gym_id: string;
-          user_id?: string | null;
-          role: string;
-          action: string;
-          entity_type?: string | null;
-          entity_id?: string | null;
-          metadata?: Json;
-          created_at?: string;
-        };
-        Update: {
-          id?: number;
-          gym_id?: string;
-          user_id?: string | null;
-          role?: string;
-          action?: string;
-          entity_type?: string | null;
-          entity_id?: string | null;
-          metadata?: Json;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      api_rate_limits: {
-        Row: {
-          scope: string;
-          subject: string;
-          window_started_at: string;
-          request_count: number;
-          updated_at: string;
-        };
-        Insert: {
-          scope: string;
-          subject: string;
-          window_started_at?: string;
-          request_count?: number;
-          updated_at?: string;
-        };
-        Update: {
-          scope?: string;
-          subject?: string;
-          window_started_at?: string;
-          request_count?: number;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      subscription_entitlements: {
-        Row: {
-          owner_id: string;
-          gym_id: string | null;
-          status: string;
-          source: string | null;
-          provider_status: string | null;
-          provider_source: string | null;
-          provider_customer_id: string | null;
-          provider_subscription_id: string | null;
-          provider_period_end: string | null;
-          recharge_period_end: string | null;
-          manual_period_end: string | null;
-          current_period_end: string | null;
-          last_verified_at: string;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          owner_id: string;
-          gym_id?: string | null;
-          status?: string;
-          source?: string | null;
-          provider_status?: string | null;
-          provider_source?: string | null;
-          provider_customer_id?: string | null;
-          provider_subscription_id?: string | null;
-          provider_period_end?: string | null;
-          recharge_period_end?: string | null;
-          manual_period_end?: string | null;
-          current_period_end?: string | null;
-          last_verified_at?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          owner_id?: string;
-          gym_id?: string | null;
-          status?: string;
-          source?: string | null;
-          provider_status?: string | null;
-          provider_source?: string | null;
-          provider_customer_id?: string | null;
-          provider_subscription_id?: string | null;
-          provider_period_end?: string | null;
-          recharge_period_end?: string | null;
-          manual_period_end?: string | null;
-          current_period_end?: string | null;
-          last_verified_at?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      recharge_codes: {
-        Row: {
-          id: string;
-          code_hash: string;
-          duration_days: number;
-          batch_label: string | null;
-          valid_until: string | null;
-          redeemed_by: string | null;
-          redeemed_at: string | null;
-          revoked_at: string | null;
-          revoked_by: string | null;
-          created_by: string | null;
-          target_user_id: string | null;
-          target_email: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          code_hash: string;
-          duration_days?: number;
-          batch_label?: string | null;
-          valid_until?: string | null;
-          redeemed_by?: string | null;
-          redeemed_at?: string | null;
-          revoked_at?: string | null;
-          revoked_by?: string | null;
-          created_by?: string | null;
-          target_user_id?: string | null;
-          target_email?: string | null;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          code_hash?: string;
-          duration_days?: number;
-          batch_label?: string | null;
-          valid_until?: string | null;
-          redeemed_by?: string | null;
-          redeemed_at?: string | null;
-          revoked_at?: string | null;
-          revoked_by?: string | null;
-          created_by?: string | null;
-          target_user_id?: string | null;
-          target_email?: string | null;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      platform_app_releases: {
-        Row: {
-          id: string;
-          platform: string;
-          version: string;
-          release_notes: string;
-          download_url: string | null;
-          artifact_path: string | null;
-          file_name: string | null;
-          status: string;
-          created_by: string | null;
-          created_at: string;
-          published_at: string;
-        };
-        Insert: {
-          id?: string;
-          platform: string;
-          version: string;
-          release_notes: string;
-          download_url?: string | null;
-          artifact_path?: string | null;
-          file_name?: string | null;
-          status?: string;
-          created_by?: string | null;
-          created_at?: string;
-          published_at?: string;
-        };
-        Update: {
-          id?: string;
-          platform?: string;
-          version?: string;
-          release_notes?: string;
-          download_url?: string | null;
-          artifact_path?: string | null;
-          file_name?: string | null;
-          status?: string;
-          created_by?: string | null;
-          created_at?: string;
-          published_at?: string;
-        };
-        Relationships: [];
-      };
-    };
+      [_ in never]: never
+    }
     Views: {
-      [_ in never]: never;
-    };
+      [_ in never]: never
+    }
     Functions: {
-      get_current_gym_context: {
-        Args: Record<PropertyKey, never>;
-        Returns: Json;
-      };
-      ensure_owner_gym: {
-        Args: { p_name: string; p_initial_state: Json };
-        Returns: Json;
-      };
-      load_current_gym_workspace: {
-        Args: Record<PropertyKey, never>;
-        Returns: Json;
-      };
-      save_current_gym_workspace: {
-        Args: { p_state: Json; p_expected_revision: number };
-        Returns: Json;
-      };
-      record_audit_event: {
-        Args: {
-          p_action: string;
-          p_entity_type?: string | null;
-          p_entity_id?: string | null;
-          p_metadata?: Json;
-        };
-        Returns: undefined;
-      };
-      consume_api_rate_limit: {
-        Args: { p_scope: string; p_subject: string; p_limit: number; p_window_seconds: number };
-        Returns: boolean;
-      };
-      redeem_recharge_code: {
-        Args: { p_code: string };
-        Returns: Json;
-      };
-      iv_is_platform_admin: {
-        Args: Record<PropertyKey, never>;
-        Returns: boolean;
-      };
-      platform_list_owners: {
-        Args: Record<PropertyKey, never>;
-        Returns: {
-          gym_id: string;
-          gym_name: string;
-          owner_id: string;
-          owner_email: string;
-          status: string;
-          source: string | null;
-          current_period_end: string | null;
-          days_remaining: number;
-          can_revoke_bonus: boolean;
-        }[];
-      };
-      platform_list_recharge_codes: {
-        Args: Record<PropertyKey, never>;
-        Returns: {
-          code_id: string;
-          batch_label: string | null;
-          duration_days: number;
-          created_at: string;
-          redeem_by: string | null;
-          assigned_owner: string | null;
-          issued_by: string | null;
-          redeemed_by: string | null;
-          redeemed_at: string | null;
-          revoked_at: string | null;
-          revoked_by: string | null;
-          code_status: string;
-        }[];
-      };
-      platform_generate_recharge_code: {
-        Args: {
-          p_owner_id: string;
-          p_days: number;
-          p_valid_days: number;
-          p_batch_label?: string | null;
-        };
-        Returns: {
-          code: string;
-          duration_days: number;
-          redeem_by: string;
-          batch_label: string;
-          target_email: string;
-        }[];
-      };
-      platform_grant_manual_pro: {
-        Args: { p_gym_id: string; p_days: number };
-        Returns: Json;
-      };
-      platform_set_bonus_pro_days: {
-        Args: { p_gym_id: string; p_days: number };
-        Returns: Json;
-      };
-      platform_revoke_pro: {
-        Args: { p_gym_id: string };
-        Returns: Json;
-      };
-      platform_revoke_recharge_code: {
-        Args: { p_code_id: string };
-        Returns: undefined;
-      };
-      platform_list_signup_invites: {
-        Args: Record<PropertyKey, never>;
-        Returns: {
-          email: string;
-          note: string;
-          invited_at: string;
-          consumed_at: string | null;
-          revoked_at: string | null;
-        }[];
-      };
-      platform_add_signup_invite: {
-        Args: { p_email: string; p_note?: string };
-        Returns: Json;
-      };
-      platform_revoke_signup_invite: {
-        Args: { p_email: string };
-        Returns: undefined;
-      };
-      platform_export_gym_backup: {
-        Args: { p_gym_id: string };
-        Returns: Json;
-      };
-      platform_dashboard_summary: {
-        Args: Record<PropertyKey, never>;
-        Returns: Json;
-      };
-      platform_list_gyms: {
-        Args: { p_search?: string; p_status?: string; p_page?: number; p_page_size?: number };
-        Returns: {
-          gym_id: string;
-          gym_name: string;
-          owner_id: string;
-          owner_name: string;
-          owner_email: string;
-          account_status: string;
-          created_at: string;
-          last_activity_at: string;
-          member_count: number;
-          subscription_status: string;
-          subscription_source: string | null;
-          subscription_expires_at: string | null;
-          days_remaining: number;
-          total_count: number;
-        }[];
-      };
-      platform_set_gym_status: {
-        Args: { p_gym_id: string; p_status: string; p_note?: string };
-        Returns: Json;
-      };
-      platform_list_audit_logs: {
-        Args: { p_page?: number; p_page_size?: number };
-        Returns: {
-          id: number;
-          admin_email: string;
-          gym_id: string | null;
-          gym_name: string | null;
-          action: string;
-          result: string;
-          metadata: Json;
-          created_at: string;
-          total_count: number;
-        }[];
-      };
-      platform_create_gym_backup: {
-        Args: { p_gym_id: string };
-        Returns: Json;
-      };
-      platform_list_gym_backups: {
-        Args: { p_gym_id: string };
-        Returns: {
-          backup_id: string;
-          gym_id: string;
-          gym_name: string;
-          backup_type: string;
-          status: string;
-          size_bytes: number;
-          created_at: string;
-          created_by_email: string;
-        }[];
-      };
-      platform_download_gym_backup: {
-        Args: { p_backup_id: string };
-        Returns: Json;
-      };
-      platform_restore_gym_backup: {
-        Args: { p_backup_id: string; p_confirm_gym_name: string };
-        Returns: Json;
-      };
-      platform_invite_gym_owner: {
-        Args: { p_email: string; p_gym_name: string; p_note?: string };
-        Returns: Json;
-      };
-      platform_list_gym_invites: {
-        Args: Record<PropertyKey, never>;
-        Returns: {
-          email: string;
-          gym_name: string;
-          note: string;
-          invited_at: string;
-          consumed_at: string | null;
-          revoked_at: string | null;
-        }[];
-      };
-      platform_list_member_migration_gyms: {
-        Args: Record<PropertyKey, never>;
-        Returns: {
-          gym_id: string;
-          gym_name: string;
-          owner_email: string;
-          account_status: string;
-          member_count: number;
-          has_workspace: boolean;
-          is_source: boolean;
-        }[];
-      };
-      platform_set_member_migration_source: {
-        Args: { p_gym_id: string; p_confirm_gym_name: string };
-        Returns: Json;
-      };
-      platform_get_member_migration_context: {
-        Args: { p_source_gym_id: string; p_destination_gym_id: string };
-        Returns: Json;
-      };
-      platform_list_member_migration_members: {
-        Args: {
-          p_source_gym_id: string;
-          p_destination_gym_id?: string | null;
-          p_search?: string;
-          p_page?: number;
-          p_page_size?: number;
-        };
-        Returns: {
-          member: Json;
-          possible_duplicate: boolean;
-          current_membership: Json | null;
-          total_count: number;
-        }[];
-      };
-      platform_import_migration_members: {
-        Args: { p_operation_id: string; p_source_gym_id: string; p_rows: Json; p_final?: boolean };
-        Returns: Json;
-      };
-      platform_transfer_members: {
-        Args: {
-          p_operation_id: string;
-          p_source_gym_id: string;
-          p_destination_gym_id: string;
-          p_member_ids: string[];
-          p_row_offset: number;
-          p_all_member_ids: string[];
-          p_plan_mapping: Json;
-          p_transfer_active_payments?: boolean;
-          p_override_duplicates?: string[];
-          p_final?: boolean;
-        };
-        Returns: Json;
-      };
-      platform_list_member_migration_history: {
-        Args: { p_page?: number; p_page_size?: number };
-        Returns: {
-          operation_id: string;
-          operation_type: string;
-          source_gym_name: string | null;
-          destination_gym_name: string | null;
-          admin_email: string;
-          status: string;
-          total_count: number;
-          successful_count: number;
-          skipped_count: number;
-          failed_count: number;
-          created_at: string;
-          updated_at: string;
-          row_count: number;
-        }[];
-      };
-      platform_finalize_member_migration: {
-        Args: { p_operation_id: string };
-        Returns: Json;
-      };
-      platform_list_member_migration_items: {
-        Args: { p_operation_id: string };
-        Returns: {
-          row_number: number;
-          source_member_id: string | null;
-          destination_member_id: string | null;
-          outcome: string;
-          message: string;
-        }[];
-      };
-      platform_list_app_releases: {
-        Args: Record<PropertyKey, never>;
-        Returns: {
-          id: string;
-          platform: string;
-          version: string;
-          release_notes: string;
-          download_url: string | null;
-          artifact_path: string | null;
-          file_name: string | null;
-          status: string;
-          created_by: string | null;
-          created_at: string;
-          published_at: string;
-        }[];
-      };
-      platform_publish_app_release: {
-        Args: {
-          p_platform: string;
-          p_version: string;
-          p_release_notes: string;
-          p_artifact_path?: string | null;
-          p_file_name?: string | null;
-          p_download_url?: string | null;
-        };
-        Returns: {
-          id: string;
-          platform: string;
-          version: string;
-          release_notes: string;
-          download_url: string | null;
-          artifact_path: string | null;
-          file_name: string | null;
-          status: string;
-          created_by: string | null;
-          created_at: string;
-          published_at: string;
-        }[];
-      };
-      platform_archive_app_release: {
-        Args: { p_release_id: string };
-        Returns: Json;
-      };
-      platform_current_app_releases: {
-        Args: Record<PropertyKey, never>;
-        Returns: {
-          id: string;
-          platform: string;
-          version: string;
-          release_notes: string;
-          download_url: string | null;
-          artifact_path: string | null;
-          file_name: string | null;
-          published_at: string;
-        }[];
-      };
-    };
+      [_ in never]: never
+    }
     Enums: {
-      [_ in never]: never;
-    };
+      [_ in never]: never
+    }
     CompositeTypes: {
-      [_ in never]: never;
-    };
-  };
-};
+      [_ in never]: never
+    }
+  }
+}
 
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">;
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">];
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
       DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
-      Row: infer R;
+      Row: infer R
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] & DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R;
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
       }
       ? R
       : never
-    : never;
+    : never
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I;
+      Insert: infer I
     }
     ? I
     : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
     ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I;
+        Insert: infer I
       }
       ? I
       : never
-    : never;
+    : never
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U;
+      Update: infer U
     }
     ? U
     : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
     ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U;
+        Update: infer U
       }
       ? U
       : never
-    : never;
+    : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
   EnumName extends (DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
     ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never;
+    : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    keyof DefaultSchema["CompositeTypes"] | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never;
+    : never
 
 export const Constants = {
   public: {
     Enums: {},
   },
-} as const;
+} as const
