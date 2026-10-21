@@ -10,3 +10,5 @@
 > the editor, so keep the branch in a working state.
 
 <!-- LOVABLE:END -->
+
+Use `bun.lock` as the sole dependency lockfile; do not commit `package-lock.json`, because npm-to-Bun migration loses aliased package identities and can break clean deployment installs.
