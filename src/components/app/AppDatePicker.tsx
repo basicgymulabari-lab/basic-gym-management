@@ -26,9 +26,17 @@ type Props = {
   min?: Date;
   max?: Date;
   placeholder?: string;
+  ariaLabel?: string;
 };
 
-export function AppDatePicker({ value, onChange, min, max, placeholder = "Select date" }: Props) {
+export function AppDatePicker({
+  value,
+  onChange,
+  min,
+  max,
+  placeholder = "Select date",
+  ariaLabel,
+}: Props) {
   const state = useGym();
   const [open, setOpen] = useState(false);
   const selected = value ? new Date(`${value.slice(0, 10)}T00:00:00`) : undefined;
@@ -69,6 +77,7 @@ export function AppDatePicker({ value, onChange, min, max, placeholder = "Select
         <Button
           type="button"
           variant="outline"
+          aria-label={ariaLabel}
           className={`w-full justify-between px-3 font-normal ${
             selected ? "text-foreground" : "text-muted-foreground"
           }`}
@@ -81,7 +90,13 @@ export function AppDatePicker({ value, onChange, min, max, placeholder = "Select
         {nepali ? (
           <div className="w-[310px] rounded-xl bg-popover p-3">
             <div className="mb-3 flex items-center gap-2">
-              <Button type="button" variant="ghost" size="icon" onClick={() => moveMonth(-1)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Previous month"
+                onClick={() => moveMonth(-1)}
+              >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Select value={String(bsMonth)} onValueChange={(v) => setBsMonth(Number(v))}>
@@ -108,7 +123,13 @@ export function AppDatePicker({ value, onChange, min, max, placeholder = "Select
                   ))}
                 </SelectContent>
               </Select>
-              <Button type="button" variant="ghost" size="icon" onClick={() => moveMonth(1)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Next month"
+                onClick={() => moveMonth(1)}
+              >
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>

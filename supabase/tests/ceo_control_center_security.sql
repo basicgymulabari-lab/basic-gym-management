@@ -49,7 +49,7 @@ begin
     if sqlerrm <> 'PLATFORM_ADMIN_REQUIRED' then raise; end if;
   end;
 
-  if public.iv_can_write_private_object('00000000-0000-0000-0000-000000000002/members/photo.png') then
+  if private.iv_can_write_private_object('00000000-0000-0000-0000-000000000002/members/photo.png') then
     raise exception 'an unassociated account can write a private tenant object';
   end if;
 end;

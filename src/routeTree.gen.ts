@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SplatRouteImport } from './routes/$'
+import { Route as AttendanceRouteImport } from './routes/attendance'
 import { Route as CeoRouteImport } from './routes/ceo'
 import { Route as ExpensesRouteImport } from './routes/expenses'
 import { Route as InquiriesRouteImport } from './routes/inquiries'
@@ -28,6 +30,16 @@ import { Route as MembersMemberIdRouteImport } from './routes/members.$memberId'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SplatRoute = SplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AttendanceRoute = AttendanceRouteImport.update({
+  id: '/attendance',
+  path: '/attendance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CeoRoute = CeoRouteImport.update({
@@ -103,6 +115,8 @@ const MembersMemberIdRoute = MembersMemberIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
+  '/attendance': typeof AttendanceRoute
   '/ceo': typeof CeoRouteWithChildren
   '/expenses': typeof ExpensesRoute
   '/inquiries': typeof InquiriesRoute
@@ -120,6 +134,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
+  '/attendance': typeof AttendanceRoute
   '/ceo': typeof CeoRouteWithChildren
   '/expenses': typeof ExpensesRoute
   '/inquiries': typeof InquiriesRoute
@@ -138,6 +154,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
+  '/attendance': typeof AttendanceRoute
   '/ceo': typeof CeoRouteWithChildren
   '/expenses': typeof ExpensesRoute
   '/inquiries': typeof InquiriesRoute
@@ -157,6 +175,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$'
+    | '/attendance'
     | '/ceo'
     | '/expenses'
     | '/inquiries'
@@ -174,6 +194,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$'
+    | '/attendance'
     | '/ceo'
     | '/expenses'
     | '/inquiries'
@@ -191,6 +213,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/$'
+    | '/attendance'
     | '/ceo'
     | '/expenses'
     | '/inquiries'
@@ -209,6 +233,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SplatRoute: typeof SplatRoute
+  AttendanceRoute: typeof AttendanceRoute
   CeoRoute: typeof CeoRouteWithChildren
   ExpensesRoute: typeof ExpensesRoute
   InquiriesRoute: typeof InquiriesRoute
@@ -231,6 +257,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$': {
+      id: '/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/attendance': {
+      id: '/attendance'
+      path: '/attendance'
+      fullPath: '/attendance'
+      preLoaderRoute: typeof AttendanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ceo': {
@@ -346,6 +386,8 @@ const CeoRouteWithChildren = CeoRoute._addFileChildren(CeoRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SplatRoute: SplatRoute,
+  AttendanceRoute: AttendanceRoute,
   CeoRoute: CeoRouteWithChildren,
   ExpensesRoute: ExpensesRoute,
   InquiriesRoute: InquiriesRoute,

@@ -21,6 +21,7 @@ begin
     and p.tablename = 'messages'
     and p.policyname = 'Platform admins can receive platform refresh events'
     and p.cmd = 'SELECT'
+    and p.roles = array['authenticated']::name[]
     and p.qual ilike '%iv_is_platform_admin%'
     and p.qual ilike '%platform-admin-live%';
   if v_policy_count <> 1 then
@@ -35,21 +36,29 @@ begin
     and c.relname = any (array[
       'gyms', 'gym_users', 'gym_workspaces', 'subscription_entitlements',
       'platform_signup_allowlist', 'recharge_codes',
-      'platform_admin_audit_logs', 'platform_gym_backups'
+      'platform_admin_audit_logs', 'platform_gym_backups',
+      'platform_member_migration_operations'
     ])
     and t.tgname = 'platform_admin_live_refresh'
     and not t.tgisinternal;
-  if v_trigger_count <> 8 then
-    raise exception 'Expected 8 platform refresh triggers, found %', v_trigger_count;
+  if v_trigger_count <> 9 then
+    raise exception 'Expected 9 platform refresh triggers, found %', v_trigger_count;
   end if;
 
   select pg_get_functiondef('public.iv_broadcast_platform_refresh()'::regprocedure)
     into v_definition;
   if v_definition not ilike '%realtime.send%'
     or v_definition not ilike '%platform_data_changed%'
+    or v_definition not ilike '%to_regclass%'
+    or v_definition not ilike '%messages_%'
     or v_definition ilike '%new.%'
     or v_definition ilike '%old.%' then
-    raise exception 'Platform broadcast must contain refresh metadata only, not row values';
+    raise exception 'Platform broadcast must guard missing daily partitions and contain refresh metadata only, not row values';
+  end if;
+
+  if not has_function_privilege('authenticated', 'public.iv_is_platform_admin()', 'EXECUTE')
+    or has_function_privilege('anon', 'public.iv_is_platform_admin()', 'EXECUTE') then
+    raise exception 'Platform-admin role check must be callable only by authenticated users';
   end if;
 
   select pg_get_functiondef('public.platform_grant_manual_pro(uuid, integer)'::regprocedure),

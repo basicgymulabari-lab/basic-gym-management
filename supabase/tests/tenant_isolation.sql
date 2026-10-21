@@ -5,7 +5,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(20);
+select plan(26);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at
@@ -55,15 +55,19 @@ insert into public.gym_workspaces (owner_id, gym_id, revision, state) values
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
-select is(public.iv_current_gym_id(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'owner A resolves only to Gym A');
+select lives_ok(
+  $$select public.record_audit_event('settings_updated', 'settings', 'gym-a')$$,
+  'gym owner can record an owner-only settings audit event'
+);
+select is(private.iv_current_gym_id(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'owner A resolves only to Gym A');
 select is(public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName', 'Gym A', 'owner A loads Gym A');
 select isnt(public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName', 'Gym B', 'owner A never loads Gym B');
 select ok(
-  public.iv_can_access_private_object('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg'),
+  private.iv_can_access_private_object('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg'),
   'owner A can resolve private files inside Gym A'
 );
 select ok(
-  not public.iv_can_access_private_object('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/members/photo.jpg'),
+  not private.iv_can_access_private_object('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/members/photo.jpg'),
   'owner A cannot resolve Gym B private files'
 );
 select throws_ok(
@@ -80,11 +84,51 @@ select throws_ok(
 );
 
 select set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-000000000002', true);
-select is(public.iv_current_gym_id(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 'owner B resolves only to Gym B');
+select is(private.iv_current_gym_id(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 'owner B resolves only to Gym B');
 select is(public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName', 'Gym B', 'owner B loads Gym B');
 
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000003', true);
-select is(public.iv_current_gym_id(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'Gym A receptionist resolves to Gym A');
+select throws_ok(
+  $$select public.record_audit_event('settings_updated', 'settings', 'gym-a')$$,
+  '42501',
+  'AUDIT_ACTION_FORBIDDEN',
+  'receptionists cannot forge owner-only audit events'
+);
+select throws_ok(
+  $$select public.record_audit_event('expense_created', 'expense', 'expense-evil')$$,
+  '42501',
+  'AUDIT_ACTION_FORBIDDEN',
+  'receptionists cannot forge events for modules without permission'
+);
+select lives_ok(
+  $$select public.record_audit_event('attendance_deleted', 'attendance', 'attendance-a')$$,
+  'receptionists with member permission can record attendance audit events'
+);
+select lives_ok(
+  $$select public.record_audit_event('payment_created', 'payment', 'payment-a')$$,
+  'receptionists with payment permission can record payment audit events'
+);
+select throws_ok(
+  $$
+    with loaded as (
+      select public.load_current_gym_workspace() as payload
+    )
+    select public.save_current_gym_workspace(
+      jsonb_set(
+        payload -> 'state',
+        '{plans}',
+        '[{"id":"invalid-plan","name":"Invalid Plan","price":-1,"joiningFee":0,"durationDays":30,"description":"","active":true}]'::jsonb,
+        true
+      ),
+      (payload ->> 'revision')::bigint
+    )
+    from loaded
+  $$,
+  'P0001',
+  'INVALID_PLAN_DATA',
+  'receptionists cannot persist invalid membership plan prices through the workspace RPC'
+);
+select is(private.iv_current_gym_id(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'Gym A receptionist resolves to Gym A');
 select is(
   (public.load_current_gym_workspace() -> 'state' -> 'products' -> 0 ->> 'cost')::numeric,
   0::numeric,
@@ -96,11 +140,11 @@ select is(
   'receptionist without expense permission never receives expenses'
 );
 select ok(
-  public.iv_can_access_private_object('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg'),
+  private.iv_can_access_private_object('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg'),
   'receptionist with member permission can resolve Gym A member photos'
 );
 select ok(
-  not public.iv_can_access_private_object('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/expenses/receipt.pdf'),
+  not private.iv_can_access_private_object('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/expenses/receipt.pdf'),
   'receptionist without expense permission cannot resolve private receipts'
 );
 

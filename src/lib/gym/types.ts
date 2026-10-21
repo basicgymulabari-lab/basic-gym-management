@@ -2,6 +2,7 @@ export type ID = string;
 
 export type Gender = "male" | "female" | "other";
 export type PersonType = "member" | "walk_in";
+export type MemberShift = "morning" | "evening";
 
 export type ProgressNote = {
   id: ID;
@@ -25,6 +26,8 @@ export type Member = {
   id: ID;
   /** Absent on legacy records, which are treated as regular members. */
   type?: PersonType;
+  /** Optional gym visit shift. Legacy members without a value are unassigned. */
+  shift?: MemberShift | null;
   name: string;
   email: string;
   phone: string;
@@ -78,6 +81,8 @@ export type Payment = {
   membershipId?: ID | null;
   saleId?: ID | null;
   kind: "membership" | "product" | "other";
+  /** Explicitly identifies a payment collected against an outstanding membership balance. */
+  purpose?: "membership_balance";
   /** Payer details for standalone walk-in payments that are not member records. */
   payerName?: string;
   payerPhone?: string;
@@ -88,7 +93,31 @@ export type Payment = {
   note: string;
 };
 
-export type ProductCategory = "Supplements" | "Apparel" | "Accessories" | "Equipment" | "Beverages";
+export type AttendanceRecord = {
+  /** Stable per member and local calendar day to prevent duplicate check-ins. */
+  id: ID;
+  memberId: ID;
+  memberName: string;
+  memberPhone: string;
+  shift: MemberShift | null;
+  date: string;
+  checkedInAt: string;
+  /** Present when this check-in has been moved to Trash. */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+};
+
+export const DEFAULT_PRODUCT_CATEGORIES = [
+  "Supplements",
+  "Apparel",
+  "Accessories",
+  "Equipment",
+  "Beverages",
+  "S/K",
+] as const;
+
+/** Product categories are workspace-managed; defaults are provided for new gyms. */
+export type ProductCategory = string;
 
 export type Product = {
   id: ID;
@@ -184,6 +213,8 @@ export type Inquiry = {
 export type ActivityType =
   | "member_added"
   | "membership_renewed"
+  | "membership_corrected"
+  | "membership_voided"
   | "membership_expired"
   | "payment_received"
   | "product_sold"
@@ -205,10 +236,14 @@ export type Activity = {
   title: string;
   description: string;
   date: string;
+  /** Member associated with this activity, when one exists. */
+  memberId?: ID;
 };
 
 export type Settings = {
   gymName: string;
+  /** Private Storage path for the gym's custom logo/avatar. */
+  gymLogo?: string | null;
   tagline: string;
   address: string;
   phone: string;
@@ -258,7 +293,11 @@ export type GymState = {
   plans: Plan[];
   memberships: Membership[];
   payments: Payment[];
+  /** Missing in older workspace/backup payloads; normalized to an empty list. */
+  attendance: AttendanceRecord[];
   products: Product[];
+  /** Missing in older workspaces; default categories are restored during cloud hydration. */
+  productCategories?: ProductCategory[];
   sales: Sale[];
   activities: Activity[];
   expenses: Expense[];

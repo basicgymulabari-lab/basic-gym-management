@@ -28,12 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 
-type AccessState =
-  | "checking"
-  | "allowed"
-  | "signed-out"
-  | "denied"
-  | "unavailable";
+type AccessState = "checking" | "allowed" | "signed-out" | "denied" | "unavailable";
 type ConsoleSection = "dashboard" | "invites" | "subscriptions" | "migrations" | "releases";
 
 export const Route = createFileRoute("/ceo")({
@@ -204,7 +199,7 @@ function CeoPage() {
     return (
       <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:grid lg:place-items-center lg:py-12">
         <div className="mx-auto grid w-full max-w-6xl overflow-hidden rounded-3xl border border-border bg-card shadow-2xl lg:grid-cols-[0.9fr_1.1fr]">
-          <section className="flex min-h-[260px] flex-col justify-between bg-[image:var(--gradient-surface)] p-6 sm:p-10 lg:min-h-[660px]">
+          <section className="flex min-h-0 flex-col justify-between gap-5 bg-[image:var(--gradient-surface)] p-5 sm:min-h-[260px] sm:gap-8 sm:p-8 lg:min-h-[660px] lg:gap-10 lg:p-10">
             <Link to="/ceo" className="flex w-fit items-center gap-3 text-gold">
               <span className="grid h-11 w-11 place-items-center rounded-xl bg-gold/15">
                 <ShieldCheck className="h-6 w-6" />
@@ -217,18 +212,18 @@ function CeoPage() {
               </span>
             </Link>
 
-            <div className="mt-10 max-w-lg lg:mt-0">
+            <div className="mt-5 max-w-lg sm:mt-7 lg:mt-0">
               <p className="text-xs uppercase tracking-[0.2em] text-gold">Company operations</p>
-              <h1 className="mt-3 font-display text-4xl leading-tight sm:text-5xl">
+              <h1 className="mt-2 font-display text-3xl leading-tight sm:mt-3 sm:text-5xl">
                 One console for every gym on the platform.
               </h1>
-              <p className="mt-4 max-w-md text-sm leading-6 text-muted-foreground">
+              <p className="mt-4 hidden max-w-md text-sm leading-6 text-muted-foreground sm:block">
                 Manage gym accounts, invitations, subscriptions, backups and platform activity
                 without entering a gym’s member-management workspace.
               </p>
             </div>
 
-            <div className="mt-8 grid gap-3 border-t border-border pt-5 text-sm text-muted-foreground sm:grid-cols-3 lg:mt-0">
+            <div className="mt-8 hidden gap-3 border-t border-border pt-5 text-sm text-muted-foreground sm:grid sm:grid-cols-3 lg:mt-0">
               <span className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-gold" /> Gym accounts
               </span>
@@ -241,7 +236,7 @@ function CeoPage() {
             </div>
           </section>
 
-          <section className="flex items-center p-6 sm:p-10 lg:p-12">
+          <section className="flex items-center p-5 sm:p-8 lg:p-12">
             <div className="mx-auto w-full max-w-md">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-gold/30 bg-gold/10 text-gold">
                 {checkingAccess ? (
@@ -250,16 +245,24 @@ function CeoPage() {
                   <KeyRound className="h-5 w-5" />
                 )}
               </div>
-              <p className="mt-6 text-xs uppercase tracking-[0.18em] text-gold">Private console</p>
-              <h2 className="mt-2 font-display text-3xl">
-                {checkingAccess ? "Verifying access" : "CEO sign in"}
+              <p className="mt-4 text-xs uppercase tracking-[0.18em] text-gold sm:mt-6">
+                Private console
+              </p>
+              <h2 className="mt-1 font-display text-3xl sm:mt-2">
+                {checkingAccess && isSupabaseConfigured() ? "Verifying access" : "CEO sign in"}
               </h2>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {denied
-                  ? "This account is not a platform administrator. Use the CEO account assigned by the platform owner."
-                  : unavailable
-                    ? "We could not verify platform access. Check your connection and try again."
-                    : "Sign in with the invited platform-owner account. Gym-owner and receptionist access cannot open this console."}
+              <p
+                id="ceo-auth-status"
+                role={unavailable ? "status" : undefined}
+                className="mt-1 text-sm leading-6 text-muted-foreground sm:mt-2"
+              >
+                {!isSupabaseConfigured()
+                  ? "Cloud authentication is not configured in this deployment. CEO access is unavailable until it is connected."
+                  : denied
+                    ? "This account is not a platform administrator. Use the CEO account assigned by the platform owner."
+                    : unavailable
+                      ? "We could not verify platform access. Check your connection and try again."
+                      : "Sign in with the invited platform-owner account. Gym-owner and receptionist access cannot open this console."}
               </p>
 
               {formError && (
@@ -279,20 +282,41 @@ function CeoPage() {
                 </div>
               )}
 
-              {checkingAccess ? (
+                {!isSupabaseConfigured() ? (
+                  <section
+                    aria-labelledby="ceo-auth-unavailable-title"
+                    className="mt-6 rounded-2xl border border-border bg-muted/10 p-4 sm:p-5"
+                  >
+                    <h3
+                      id="ceo-auth-unavailable-title"
+                      className="flex items-center gap-2 text-sm font-semibold text-foreground"
+                    >
+                      <ShieldAlert className="h-4 w-4 shrink-0 text-gold" />
+                      Platform-owner sign-in is paused
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Cloud authentication must be configured for this deployment before this
+                      private console can accept sign-in. Contact the platform administrator; do
+                      not enter account details here until access is enabled.
+                    </p>
+                  </section>
+                ) : checkingAccess ? (
                 <div className="mt-7 flex items-center gap-3 rounded-xl border border-border p-4 text-sm text-muted-foreground">
                   <LoaderCircle className="h-4 w-4 animate-spin text-gold" /> Checking your secure
                   platform permissions…
                 </div>
               ) : (
-                <form className="mt-7 space-y-5" onSubmit={(event) => void signIn(event)}>
+                <form
+                  className="mt-5 space-y-4 sm:mt-6 sm:space-y-5 lg:mt-7"
+                  onSubmit={(event) => void signIn(event)}
+                >
                   <div className="space-y-2">
                     <Label htmlFor="ceo-email">Platform-owner email</Label>
                     <div className="relative">
                       <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         id="ceo-email"
-                        className="pl-10"
+                        className="pl-10 disabled:cursor-not-allowed disabled:border-border/50 disabled:bg-muted/20 disabled:text-muted-foreground disabled:opacity-40"
                         type="email"
                         autoComplete="username"
                         maxLength={254}
@@ -301,6 +325,7 @@ function CeoPage() {
                         onChange={(event) => setEmail(event.target.value)}
                         placeholder="owner@yourcompany.com"
                         disabled={checking || !isSupabaseConfigured()}
+                        aria-describedby={!isSupabaseConfigured() ? "ceo-auth-status" : undefined}
                       />
                     </div>
                   </div>
@@ -310,20 +335,21 @@ function CeoPage() {
                       <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         id="ceo-password"
-                        className="pr-11 pl-10"
+                        className="pr-11 pl-10 disabled:cursor-not-allowed disabled:border-border/50 disabled:bg-muted/20 disabled:text-muted-foreground disabled:opacity-40"
                         type={showPassword ? "text" : "password"}
                         autoComplete="current-password"
                         required
                         value={password}
                         onChange={(event) => setPassword(event.target.value)}
                         disabled={checking || !isSupabaseConfigured()}
+                        aria-describedby={!isSupabaseConfigured() ? "ceo-auth-status" : undefined}
                       />
                       <button
                         type="button"
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         onClick={() => setShowPassword((value) => !value)}
                         aria-label={showPassword ? "Hide password" : "Show password"}
-                        disabled={checking}
+                        disabled={checking || !isSupabaseConfigured()}
                       >
                         {showPassword ? (
                           <EyeOff className="h-4 w-4" />
@@ -335,9 +361,9 @@ function CeoPage() {
                     <div className="flex justify-end">
                       <button
                         type="button"
-                        className="text-sm text-gold hover:underline"
+                        className="text-sm text-gold hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
                         onClick={() => void sendResetLink()}
-                        disabled={checking}
+                        disabled={checking || !isSupabaseConfigured()}
                       >
                         Forgot password?
                       </button>
@@ -347,6 +373,7 @@ function CeoPage() {
                   <Button
                     className="w-full"
                     type="submit"
+                    variant={isSupabaseConfigured() ? "default" : "secondary"}
                     disabled={checking || !isSupabaseConfigured()}
                   >
                     {checking ? (
@@ -357,12 +384,6 @@ function CeoPage() {
                     Sign in to CEO console
                     {!checking && <ArrowRight className="ml-2 h-4 w-4" />}
                   </Button>
-
-                  {!isSupabaseConfigured() && (
-                    <p className="text-sm text-destructive">
-                      Cloud authentication is not configured in this deployment.
-                    </p>
-                  )}
                 </form>
               )}
 
@@ -376,7 +397,7 @@ function CeoPage() {
                 No CEO sign-up is available here. Platform access is checked by Supabase for every
                 privileged action.
               </p>
-              {unavailable && (
+              {unavailable && isSupabaseConfigured() && (
                 <div className="mt-5 grid gap-2">
                   <Button
                     className="w-full"
@@ -477,7 +498,10 @@ function CeoPage() {
             </p>
           </div>
 
-          <nav aria-label="Platform console sections" className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <nav
+            aria-label="Platform console sections"
+            className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+          >
             {sections.map((item) => (
               <button
                 key={item.id}

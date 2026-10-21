@@ -1,20 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Users,
   Wallet,
@@ -69,6 +54,8 @@ import type { ActivityType } from "@/lib/gym/types";
 import { formatLongDate } from "@/lib/gym/calendar";
 import { addMoney, multiplyMoney, subtractMoney, sumMoney } from "@/lib/gym/money";
 
+const DashboardChart = lazy(() => import("@/components/app/DashboardCharts"));
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
@@ -96,6 +83,8 @@ export const Route = createFileRoute("/")({
 const ACTIVITY_ICON: Record<ActivityType, typeof UserPlus> = {
   member_added: UserPlus,
   membership_renewed: RefreshCw,
+  membership_corrected: RefreshCw,
+  membership_voided: BadgeX,
   membership_expired: BadgeX,
   payment_received: IndianRupee,
   product_sold: ShoppingBag,
@@ -120,14 +109,43 @@ const RANGE_HINT: Record<Range, string> = {
   yearly: "Last 5 years",
 };
 
-/** Premium gradients: gold, emerald, sky, slate, soft orange. */
-const PLAN_GRADIENTS = [
-  ["#FFE27A", "#C88708"],
-  ["#83D8B2", "#238660"],
-  ["#8FD4F0", "#317FA7"],
-  ["#B7BEC8", "#616975"],
-  ["#FFC08C", "#D16D31"],
-];
+function DeferredDashboardChart({ children, height }: { children: ReactNode; height: number }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "0px 0px 160px 0px" },
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} style={{ minHeight: height }}>
+      {shouldLoad ? (
+        <Suspense fallback={<div aria-hidden="true" className="animate-pulse rounded-md bg-secondary/30" style={{ height }} />}>
+          {children}
+        </Suspense>
+      ) : (
+        <div aria-hidden="true" className="animate-pulse rounded-md bg-secondary/30" style={{ height }} />
+      )}
+    </div>
+  );
+}
 
 function Dashboard() {
   const state = useGym();
@@ -142,6 +160,33 @@ function Dashboard() {
     const liveMemberships = state.memberships.filter((membership) =>
       activeMemberIds.has(membership.memberId),
     );
+    // Pre-aggregate dashboard membership data once. Re-filtering the full
+    // payment roster for every membership made this page quadratic on gyms
+    // with a large member history.
+    const paidByMembershipId = new Map<string, number>();
+    for (const payment of state.payments) {
+      if (!payment.membershipId) continue;
+      paidByMembershipId.set(
+        payment.membershipId,
+        addMoney(paidByMembershipId.get(payment.membershipId) ?? 0, payment.amount),
+      );
+    }
+    const membershipCountByMemberId = new Map<string, number>();
+    const earliestMembershipCreatedAtByMemberId = new Map<string, number>();
+    for (const membership of liveMemberships) {
+      membershipCountByMemberId.set(
+        membership.memberId,
+        (membershipCountByMemberId.get(membership.memberId) ?? 0) + 1,
+      );
+      const createdAt = new Date(membership.createdAt).getTime();
+      const earliestCreatedAt = earliestMembershipCreatedAtByMemberId.get(membership.memberId);
+      if (
+        Number.isFinite(createdAt) &&
+        (earliestCreatedAt === undefined || createdAt < earliestCreatedAt)
+      ) {
+        earliestMembershipCreatedAtByMemberId.set(membership.memberId, createdAt);
+      }
+    }
     const statuses = members.map((m) => statusOf(state, m.id));
     const now = new Date();
     const todayKey = now.toDateString();
@@ -174,10 +219,7 @@ function Dashboard() {
           0,
           subtractMoney(
             membershipPayable(membership),
-            sumMoney(
-              state.payments.filter((payment) => payment.membershipId === membership.id),
-              (payment) => payment.amount,
-            ),
+            paidByMembershipId.get(membership.id) ?? 0,
           ),
         );
         return due > 0 ? [{ due, date: membership.endDate }] : [];
@@ -203,20 +245,18 @@ function Dashboard() {
     const monthMemberships = liveMemberships.filter((membership) =>
       isInCurrentMonthToDate(membership.createdAt, now),
     );
-    const renewalsThisMonth = monthMemberships.filter((membership) =>
-      liveMemberships.some(
-        (other) =>
-          other.memberId === membership.memberId &&
-          other.id !== membership.id &&
-          new Date(other.createdAt) < new Date(membership.createdAt),
-      ),
-    ).length;
+    const renewalsThisMonth = monthMemberships.filter((membership) => {
+      const firstCreatedAt = earliestMembershipCreatedAtByMemberId.get(membership.memberId);
+      return (
+        firstCreatedAt !== undefined &&
+        firstCreatedAt < new Date(membership.createdAt).getTime()
+      );
+    }).length;
     const membersWithMemberships = members.filter((member) =>
-      liveMemberships.some((membership) => membership.memberId === member.id),
-    );
-    const renewedMembers = membersWithMemberships.filter(
-      (member) =>
-        liveMemberships.filter((membership) => membership.memberId === member.id).length > 1,
+      (membershipCountByMemberId.get(member.id) ?? 0) > 0,
+    ).length;
+    const renewedMembers = members.filter(
+      (member) => (membershipCountByMemberId.get(member.id) ?? 0) > 1,
     ).length;
 
     return {
@@ -246,8 +286,8 @@ function Dashboard() {
       ageBuckets,
       newThisMonth: members.filter((member) => isInCurrentMonthToDate(member.joinDate, now)).length,
       renewalsThisMonth,
-      renewalRate: membersWithMemberships.length
-        ? Math.round((renewedMembers / membersWithMemberships.length) * 100)
+      renewalRate: membersWithMemberships
+        ? Math.round((renewedMembers / membersWithMemberships) * 100)
         : 0,
       today: {
         payments: sumMoney(
@@ -295,7 +335,10 @@ function Dashboard() {
         }
       />
 
-      <div data-tour="dashboard-overview" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        data-tour="dashboard-overview"
+        className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4"
+      >
         {canViewMembers && (
           <StatCard
             label="Active Members"
@@ -348,7 +391,10 @@ function Dashboard() {
 
       <div data-tour="quick-actions">
         <Panel title="Quick Actions" description="Common daily tasks" className="mt-6">
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div
+            data-testid="dashboard-quick-actions-grid"
+            className="grid grid-cols-2 gap-2 xl:grid-cols-4"
+          >
             {(!isReceptionist || session?.permissions?.members) && (
               <Button asChild variant="secondary" className="justify-start">
                 <Link to="/members" search={{ filter: "all", q: "", new: true }}>
@@ -405,195 +451,26 @@ function Dashboard() {
               </div>
             }
           >
-            {data.series.some((point) => point.total > 0) ? (
-              <div className="h-[250px] w-full sm:h-[290px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data.series} margin={{ left: -18, right: 8, top: 8 }}>
-                    <defs>
-                      <linearGradient id="gGold" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--color-gold)" stopOpacity={0.55} />
-                        <stop offset="100%" stopColor="var(--color-gold)" stopOpacity={0.02} />
-                      </linearGradient>
-                      <linearGradient id="gGreen" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--color-success)" stopOpacity={0.4} />
-                        <stop offset="100%" stopColor="var(--color-success)" stopOpacity={0.02} />
-                      </linearGradient>
-                      <linearGradient id="gBlue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--color-chart-3)" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="var(--color-chart-3)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid
-                      strokeDasharray="3 6"
-                      stroke="var(--color-border)"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="label"
-                      tickLine={false}
-                      axisLine={false}
-                      fontSize={11}
-                      stroke="var(--color-muted-foreground)"
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      fontSize={11}
-                      stroke="var(--color-muted-foreground)"
-                      tickFormatter={compactMoney}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 12,
-                        fontSize: 12,
-                      }}
-                      formatter={(v: number, n: string) => [
-                        money(v, cur),
-                        n === "membership" ? "Membership" : n === "product" ? "Products" : "Other",
-                      ]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="membership"
-                      stroke="var(--color-gold)"
-                      strokeWidth={2}
-                      fill="url(#gGold)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="product"
-                      stroke="var(--color-success)"
-                      strokeWidth={2}
-                      fill="url(#gGreen)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="other"
-                      stroke="var(--color-chart-3)"
-                      strokeWidth={2}
-                      fill="url(#gBlue)"
-                    />
-                    <Legend
-                      iconType="circle"
-                      iconSize={8}
-                      formatter={(value: string) =>
-                        value === "membership"
-                          ? "Membership"
-                          : value === "product"
-                            ? "Products"
-                            : "Other"
-                      }
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <EmptyState title="No revenue data yet" hint="Recorded payments will appear here." />
-            )}
+            <DeferredDashboardChart height={290}>
+              <DashboardChart
+                kind="revenue"
+                series={data.series}
+                currency={cur}
+                compactMoney={compactMoney}
+              />
+            </DeferredDashboardChart>
           </Panel>
         )}
 
         {canViewMemberships && (
-          <Panel title="Membership Statistics" description="Active members by plan">
-            {data.plans.length > 0 ? (
-              <div>
-                <div className="relative h-[190px] w-full sm:h-[210px]">
-                  <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-center">
-                    <p className="font-display text-3xl leading-none text-foreground">
-                      {data.active}
-                    </p>
-                    <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      Active
-                    </p>
-                  </div>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <defs>
-                        {PLAN_GRADIENTS.map(([start, end], index) => (
-                          <linearGradient
-                            key={index}
-                            id={`membership-segment-${index}`}
-                            x1="0"
-                            y1="0"
-                            x2="1"
-                            y2="1"
-                          >
-                            <stop offset="0%" stopColor={start} />
-                            <stop offset="100%" stopColor={end} />
-                          </linearGradient>
-                        ))}
-                      </defs>
-                      <Pie
-                        data={data.plans}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius="62%"
-                        outerRadius="79%"
-                        paddingAngle={3.5}
-                        cornerRadius={2}
-                        minAngle={2}
-                        stroke="var(--color-card)"
-                        strokeWidth={2}
-                        isAnimationActive
-                        animationDuration={700}
-                      >
-                        {data.plans.map((_, i) => (
-                          <Cell
-                            key={i}
-                            fill={`url(#membership-segment-${i % PLAN_GRADIENTS.length})`}
-                            style={{ transition: "opacity 200ms ease, filter 200ms ease" }}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        cursor={false}
-                        content={({ active, payload }) =>
-                          active && payload?.length ? (
-                            <div className="rounded-xl border border-border bg-popover px-3.5 py-2.5 text-xs shadow-lg">
-                              <p className="font-semibold text-foreground">{payload[0].name}</p>
-                              <p className="mt-0.5 text-muted-foreground">
-                                Members:{" "}
-                                <span className="font-medium text-gold">{payload[0].value}</span>
-                              </p>
-                            </div>
-                          ) : null
-                        }
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="mt-2 grid gap-x-4 gap-y-1.5 border-t border-border/70 pt-3 sm:grid-cols-2">
-                  {data.plans.map((plan, i) => (
-                    <div
-                      key={plan.name}
-                      className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1"
-                    >
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{
-                          background: `linear-gradient(135deg, ${PLAN_GRADIENTS[i % PLAN_GRADIENTS.length][0]}, ${PLAN_GRADIENTS[i % PLAN_GRADIENTS.length][1]})`,
-                        }}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                        {plan.name}
-                      </span>
-                      <span className="shrink-0 text-xs font-semibold text-foreground">
-                        {plan.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <EmptyState
-                title="No active memberships"
-                hint="Plan distribution will appear after memberships are added."
-              />
-            )}
+          <Panel
+            title="Membership Statistics"
+            description="Active members by plan"
+            className="self-start"
+          >
+            <DeferredDashboardChart height={230}>
+              <DashboardChart kind="membership" plans={data.plans} active={data.active} />
+            </DeferredDashboardChart>
           </Panel>
         )}
       </div>
@@ -603,7 +480,7 @@ function Dashboard() {
       >
         {canViewRevenue && canViewProducts && canViewProductCost && (
           <Panel
-            className="xl:col-span-2"
+            className="self-start xl:col-span-2"
             title="Sales Statistics"
             description="Best performing products by revenue"
             actions={
@@ -612,56 +489,14 @@ function Dashboard() {
               </span>
             }
           >
-            {data.products.length > 0 ? (
-              <div className="h-[240px] w-full sm:h-[270px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.products} margin={{ left: -18, right: 8, top: 8 }}>
-                    <CartesianGrid
-                      strokeDasharray="3 6"
-                      stroke="var(--color-border)"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="name"
-                      tickLine={false}
-                      axisLine={false}
-                      fontSize={10}
-                      stroke="var(--color-muted-foreground)"
-                      tickFormatter={(v: string) => v.split(" ")[0]}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      fontSize={11}
-                      stroke="var(--color-muted-foreground)"
-                      tickFormatter={compactMoney}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "var(--color-secondary)", opacity: 0.4 }}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 12,
-                        fontSize: 12,
-                      }}
-                      formatter={(v: number) => money(v, cur)}
-                    />
-                    <Bar dataKey="revenue" radius={[6, 6, 0, 0]} fill="var(--color-gold)" />
-                    <Bar dataKey="profit" radius={[6, 6, 0, 0]} fill="var(--color-chart-3)" />
-                    <Legend
-                      iconType="circle"
-                      iconSize={8}
-                      formatter={(value: string) => (value === "revenue" ? "Revenue" : "Profit")}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <EmptyState
-                title="No product sales yet"
-                hint="Completed product sales will appear here."
+            <DeferredDashboardChart height={270}>
+              <DashboardChart
+                kind="sales"
+                products={data.products}
+                currency={cur}
+                compactMoney={compactMoney}
               />
-            )}
+            </DeferredDashboardChart>
           </Panel>
         )}
 
@@ -754,7 +589,10 @@ function Dashboard() {
       <div className={`mt-6 grid gap-6 ${canViewRevenue ? "xl:grid-cols-3" : "xl:grid-cols-1"}`}>
         {canViewRevenue && (
           <>
-            <Panel title="Financial Overview" description="All-time collected performance">
+            <Panel
+              title="Financial Overview"
+              description="All-time collected performance"
+            >
               <div className="space-y-3">
                 <SummaryMetric
                   label="Collected revenue"
@@ -787,7 +625,10 @@ function Dashboard() {
             </Panel>
 
             {canViewPayments && (
-              <Panel title="Balance Aging" description="Outstanding amount by age">
+              <Panel
+                title="Balance Aging"
+                description="Outstanding amount by age"
+              >
                 <div className="space-y-4">
                   {data.ageBuckets.map((bucket) => {
                     const max = Math.max(...data.ageBuckets.map((item) => item.amount), 1);
@@ -815,22 +656,34 @@ function Dashboard() {
         )}
 
         {canViewMemberships && (
-          <Panel title="Member Lifecycle" description="Current month and roster health">
-            <div className="grid grid-cols-2 gap-3">
+          <Panel
+            title="Member Lifecycle"
+            description="Current month and roster health"
+          >
+            <div data-testid="dashboard-lifecycle-grid" className="grid grid-cols-2 gap-3">
               <LifecycleMetric label="New this month" value={data.newThisMonth} />
               <LifecycleMetric label="Renewals" value={data.renewalsThisMonth} />
               <LifecycleMetric label="Active" value={data.active} />
               <LifecycleMetric label="Expired" value={data.expired} />
               <LifecycleMetric label="No plan" value={data.unassigned} />
               <LifecycleMetric label="Renewal rate" value={`${data.renewalRate}%`} />
-              <LifecycleMetric label="Frozen" value={data.frozen} />
+              <div data-testid="dashboard-frozen-metric" className="col-span-2">
+                <LifecycleMetric label="Frozen" value={data.frozen} />
+              </div>
             </div>
           </Panel>
         )}
       </div>
 
-      <Panel title="Today’s Summary" description="Activity recorded today" className="mt-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <Panel
+        title="Today’s Summary"
+        description="Activity recorded today"
+        className="mt-6"
+      >
+        <div
+          data-testid="dashboard-today-summary-grid"
+          className="grid grid-cols-2 gap-4 xl:grid-cols-4"
+        >
           {canViewRevenue && (
             <TodayMetric label="Payments received" value={money(data.today.payments, cur)} />
           )}
@@ -846,31 +699,42 @@ function Dashboard() {
         </div>
       </Panel>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ...(canViewMemberships ? [["Frozen memberships", String(data.frozen)]] : []),
-          ...(canViewProducts ? [["Products in catalogue", String(data.productCount)]] : []),
-          ...(canViewPayments ? [["Invoices generated", String(data.invoiceCount)]] : []),
-          ...(canViewMemberships
-            ? [
-                [
-                  `Expiring within ${state.settings.expiryReminderDays} days`,
-                  String(
-                    gymMembers(state).filter((m) => {
-                      const ms = currentMembership(state, m.id);
-                      return ms && statusOf(state, m.id) === "expiring";
-                    }).length,
-                  ),
-                ],
-              ]
-            : []),
-        ].map(([label, value]) => (
-          <div key={label} className="surface-panel rounded-2xl p-4">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-            <p className="mt-1 font-display text-2xl">{value}</p>
-          </div>
-        ))}
-      </div>
+      <Panel
+        title="More Metrics"
+        description="Additional roster and operations counts"
+        className="mt-6"
+      >
+        <div
+          data-testid="dashboard-bottom-summary-grid"
+          className="grid grid-cols-2 gap-4 xl:grid-cols-4"
+        >
+          {[
+            ...(canViewMemberships ? [["Frozen memberships", String(data.frozen)]] : []),
+            ...(canViewProducts ? [["Products in catalogue", String(data.productCount)]] : []),
+            ...(canViewPayments ? [["Invoices generated", String(data.invoiceCount)]] : []),
+            ...(canViewMemberships
+              ? [
+                  [
+                    `Expiring within ${state.settings.expiryReminderDays} days`,
+                    String(
+                      gymMembers(state).filter((m) => {
+                        const ms = currentMembership(state, m.id);
+                        return ms && statusOf(state, m.id) === "expiring";
+                      }).length,
+                    ),
+                  ],
+                ]
+              : []),
+          ].map(([label, value]) => (
+            <div key={label} className="surface-panel rounded-2xl p-4">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                {label}
+              </p>
+              <p className="mt-1 font-display text-2xl">{value}</p>
+            </div>
+          ))}
+        </div>
+      </Panel>
     </>
   );
 }

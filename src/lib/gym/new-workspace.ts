@@ -21,6 +21,7 @@ export function newWorkspace(email: string, name = "Gym Owner", gymName = "My Gy
     plans: [],
     memberships: [],
     payments: [],
+    attendance: [],
     products: [],
     sales: [],
     activities: [],

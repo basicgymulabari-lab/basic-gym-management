@@ -46,8 +46,8 @@ begin
   end if;
 
   foreach v_function in array array[
-    'public.iv_current_gym_id()'::regprocedure,
-    'public.iv_is_current_gym_owner()'::regprocedure,
+    'private.iv_current_gym_id()'::regprocedure,
+    'private.iv_is_current_gym_owner()'::regprocedure,
     'public.load_current_gym_workspace()'::regprocedure,
     'public.save_current_gym_workspace(jsonb,bigint)'::regprocedure,
     'public.ensure_owner_gym(text,jsonb)'::regprocedure,

@@ -10,7 +10,8 @@ import {
   upsertEntitlement,
   verifyStripeWebhook,
 } from "../_shared/billing.ts";
-import { errorResponse, jsonResponse, optionsResponse, readLimitedBodyText } from "../_shared/http.ts";
+import { errorResponse, HttpError, jsonResponse, optionsResponse, readLimitedBodyText } from "../_shared/http.ts";
+import { stripeRefundEntries } from "../_shared/stripe-refunds.ts";
 
 type StripeObject = Record<string, unknown> & {
   id?: string;
@@ -135,40 +136,88 @@ Deno.serve(async (request) => {
     } else if (event.type === "charge.refunded") {
       const paymentId = object.id ?? "";
       if (paymentId) {
-        const { data: existing } = await admin
-          .from("billing_transactions")
-          .select("gym_id,owner_id,provider_subscription_id,amount_minor,currency")
-          .eq("provider", "stripe")
-          .eq("provider_payment_id", paymentId)
-          .eq("kind", "subscription")
-          .maybeSingle();
+        const paymentIds = [...new Set([
+          paymentId,
+          ...(typeof object.payment_intent === "string" ? [object.payment_intent] : []),
+        ])];
+        const refunds = stripeRefundEntries(object);
+        let existing = null;
+        for (const candidatePaymentId of paymentIds) {
+          const { data, error: lookupError } = await admin
+            .from("billing_transactions")
+            .select("gym_id,owner_id,provider_payment_id,provider_subscription_id,amount_minor,currency")
+            .eq("provider", "stripe")
+            .eq("provider_payment_id", candidatePaymentId)
+            .eq("kind", "subscription")
+            .maybeSingle();
+          if (lookupError) {
+            throw new HttpError(
+              "Could not find the billing transaction to refund.",
+              502,
+              "BILLING_TRANSACTION_LOOKUP_FAILED",
+            );
+          }
+          if (data) {
+            existing = data;
+            break;
+          }
+        }
         if (existing) {
-          const refund = object.refunds?.data?.[0];
-          const refundId = refund?.id ?? `refund:${eventKey}`;
-          const refundAmount = Number(refund?.amount ?? object.amount_refunded ?? 0);
-          await upsertBillingTransaction({
-            gymId: existing.gym_id,
-            ownerId: existing.owner_id,
-            provider: "stripe",
-            paymentId,
-            subscriptionId: existing.provider_subscription_id,
-            refundId,
-            kind: "refund",
-            status: refundAmount >= Number(existing.amount_minor ?? 0) ? "refunded" : "partially_refunded",
-            amountMinor: refundAmount,
-            currency: existing.currency,
-            occurredAt: unixToIso(refund?.created) ?? undefined,
-            metadata: { stripe_event_id: eventKey },
-          });
-          await writeAudit({
-            gymId: existing.gym_id,
-            userId: null,
-            role: "system",
-            action: "subscription_refund_recorded",
-            entityType: "billing_refund",
-            entityId: refundId,
-            metadata: { provider: "stripe", payment_id: paymentId, amount_minor: refundAmount },
-          });
+          const refundIds = refunds.map((refund) => refund.id ?? `refund:${existing.provider_payment_id}`);
+          const existingRefundIds = new Set<string>();
+          if (refundIds.length > 0) {
+            const { data: previousRefunds, error: refundLookupError } = await admin
+              .from("billing_transactions")
+              .select("provider_refund_id")
+              .eq("provider", "stripe")
+              .eq("provider_payment_id", existing.provider_payment_id)
+              .eq("kind", "refund")
+              .in("provider_refund_id", refundIds);
+            if (refundLookupError) {
+              throw new HttpError(
+                "Could not verify the billing refund history.",
+                502,
+                "BILLING_REFUND_LOOKUP_FAILED",
+              );
+            }
+            for (const previousRefund of previousRefunds ?? []) {
+              existingRefundIds.add(previousRefund.provider_refund_id);
+            }
+          }
+
+          for (const refund of refunds) {
+            const refundId = refund.id ?? `refund:${existing.provider_payment_id}`;
+            const refundAmount = refund.amount ?? 0;
+            await upsertBillingTransaction({
+              gymId: existing.gym_id,
+              ownerId: existing.owner_id,
+              provider: "stripe",
+              paymentId: existing.provider_payment_id,
+              subscriptionId: existing.provider_subscription_id,
+              refundId,
+              kind: "refund",
+              status: refundAmount >= Number(existing.amount_minor ?? 0) ? "refunded" : "partially_refunded",
+              amountMinor: refundAmount,
+              currency: existing.currency,
+              occurredAt: unixToIso(refund.created) ?? undefined,
+              metadata: { stripe_event_id: eventKey },
+            });
+            if (!existingRefundIds.has(refundId)) {
+              await writeAudit({
+                gymId: existing.gym_id,
+                userId: null,
+                role: "system",
+                action: "subscription_refund_recorded",
+                entityType: "billing_refund",
+                entityId: refundId,
+                metadata: {
+                  provider: "stripe",
+                  payment_id: existing.provider_payment_id,
+                  amount_minor: refundAmount,
+                },
+              });
+            }
+          }
         }
       }
     }

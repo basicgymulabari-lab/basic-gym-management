@@ -13,6 +13,32 @@ type RewriterElement = {
   prepend(content: string, options?: { html?: boolean }): void;
 };
 
+const knownDocumentRoutes = new Set([
+  "/",
+  "/attendance",
+  "/ceo",
+  "/ceo/demo",
+  "/expenses",
+  "/inquiries",
+  "/login",
+  "/members",
+  "/memberships",
+  "/notifications",
+  "/payments",
+  "/products",
+  "/reports",
+  "/settings",
+  "/trash",
+]);
+
+function isKnownDocumentRoute(pathname: string) {
+  const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  return (
+    knownDocumentRoutes.has(normalizedPath) ||
+    /^\/members\/[^/]+$/.test(normalizedPath)
+  );
+}
+
 declare class HTMLRewriter {
   on(
     selector: string,
@@ -32,6 +58,19 @@ export default {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
     const acceptsHtml = request.headers.get("accept")?.toLowerCase().includes("text/html");
     const isDocumentRequest = request.method === "GET" && acceptsHtml;
+    const requestUrl = new URL(request.url);
+
+    // Retire the old public CEO demo URL before the SPA hydrates. Redirecting
+    // in a route loader can force a hydration recovery on static app shells.
+    if (isDocumentRequest && requestUrl.pathname.replace(/\/+$/, "") === "/ceo/demo") {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: new URL("/ceo", requestUrl.origin).toString(),
+          "Cache-Control": "no-store",
+        },
+      });
+    }
 
     // Conditional requests can produce an empty 304 response, which cannot be
     // assigned a fresh CSP nonce. HTML is no-store; force the asset binding to
@@ -69,7 +108,7 @@ export default {
           // runtime style elements the same per-response nonce without
           // allowing arbitrary inline style blocks through the CSP.
           element.prepend(
-            `<script nonce="${nonce}">(()=>{const n=document.currentScript?.nonce;if(!n)return;const s=e=>{if(e&&e.nodeType===1&&e.nodeName==="STYLE"&&!e.nonce)e.setAttribute("nonce",n)};const c=document.createElement.bind(document);document.createElement=function(t,o){const e=c(t,o);s(e);return e};const a=Node.prototype.appendChild;Node.prototype.appendChild=function(e){s(e);return a.call(this,e)};const i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(e,r){s(e);return i.call(this,e,r)}})();</script>`,
+            `<script nonce="${nonce}">(()=>{const n=document.currentScript?.nonce;if(!n)return;const s=e=>{if(e&&e.nodeType===1&&e.nodeName==="STYLE"&&!e.nonce)e.setAttribute("nonce",n)};const c=document.createElement.bind(document);document.createElement=function(t,o){const e=c(t,o);s(e);return e};const a=Node.prototype.appendChild;Node.prototype.appendChild=function(e){s(e);return a.call(this,e)};const i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(e,r){s(e);return i.call(this,e,r)}})();</script><script src="/attendance-history-search.js" nonce="${nonce}" defer></script>`,
             { html: true },
           );
         },
@@ -94,7 +133,10 @@ export default {
     responseHeaders.delete("Content-Encoding");
 
     return new Response(rewritten.body, {
-      status: rewritten.status,
+      // Cloudflare's SPA fallback serves the app shell with HTTP 200 even for
+      // unknown paths. Preserve the client-rendered 404 while giving crawlers
+      // and monitors correct document-level semantics.
+      status: isKnownDocumentRoute(new URL(request.url).pathname) ? rewritten.status : 404,
       statusText: rewritten.statusText,
       headers: responseHeaders,
     });

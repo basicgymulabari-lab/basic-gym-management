@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Download, Printer } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { money, shortDate } from "@/lib/gym/selectors";
+import { money, paymentTime, shortDate } from "@/lib/gym/selectors";
 import type { Settings } from "@/lib/gym/types";
 
 export type InvoiceStatus = "Paid" | "Partially Paid" | "Pending";
@@ -137,6 +137,9 @@ export function InvoiceDialog({
               </p>
               <p className="font-display text-xl">{invoice.invoiceNo}</p>
               <p className="text-xs text-muted-foreground">{shortDate(invoice.date)}</p>
+              <p className="text-xs text-muted-foreground">
+                {paymentTime(invoice.date) ?? "Time not recorded"}
+              </p>
               <span
                 className={`mt-2 inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${statusTone}`}
               >

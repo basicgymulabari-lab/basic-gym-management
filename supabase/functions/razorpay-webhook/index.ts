@@ -10,7 +10,7 @@ import {
   upsertEntitlement,
   verifyRazorpayWebhook,
 } from "../_shared/billing.ts";
-import { errorResponse, jsonResponse, optionsResponse, readLimitedBodyText } from "../_shared/http.ts";
+import { errorResponse, HttpError, jsonResponse, optionsResponse, readLimitedBodyText } from "../_shared/http.ts";
 
 type Entity = Record<string, unknown> & {
   id?: string;
@@ -117,13 +117,20 @@ Deno.serve(async (request) => {
 
     const refund = event.payload?.refund?.entity;
     if (event.event?.startsWith("refund.") && refund?.id && typeof refund.payment_id === "string") {
-      const { data: existing } = await admin
+      const { data: existing, error: lookupError } = await admin
         .from("billing_transactions")
         .select("gym_id,owner_id,provider_subscription_id,amount_minor,currency")
         .eq("provider", "razorpay")
         .eq("provider_payment_id", refund.payment_id)
         .eq("kind", "subscription")
         .maybeSingle();
+      if (lookupError) {
+        throw new HttpError(
+          "Could not find the billing transaction to refund.",
+          502,
+          "BILLING_TRANSACTION_LOOKUP_FAILED",
+        );
+      }
       if (existing) {
         const amount = Number(refund.amount ?? 0);
         await upsertBillingTransaction({

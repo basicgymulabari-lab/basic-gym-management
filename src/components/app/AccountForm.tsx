@@ -9,6 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 type Mode = "signin" | "signup" | "forgot" | "reset";
+
+function isRecoveryConfigurationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /authentication service is not configured|password recovery (?:is )?not (?:enabled|configured)|email provider.{0,40}not configured|smtp.{0,40}not configured/i.test(
+    message,
+  );
+}
+
 export function AccountForm() {
   const cloudAuthAvailable = isSupabaseConfigured();
   const navigate = useNavigate();
@@ -19,11 +27,13 @@ export function AccountForm() {
   const [confirm, setConfirm] = useState("");
   const [name, setName] = useState("");
   const [gym, setGym] = useState("");
+  const [recoveryStepsVisible, setRecoveryStepsVisible] = useState(false);
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [recoveryUnavailable, setRecoveryUnavailable] = useState(false);
   const [recoverySession, setRecoverySession] = useState(false);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [restoreFailed, setRestoreFailed] = useState(false);
@@ -110,7 +120,9 @@ export function AccountForm() {
     setConfirm("");
     setError("");
     setNotice("");
+    setRecoveryUnavailable(false);
     setVisible(false);
+    setRecoveryStepsVisible(false);
   }
   async function run(action: () => Promise<void>) {
     if (lock.current || checking) return;
@@ -121,7 +133,14 @@ export function AccountForm() {
     try {
       await action();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      if (mode === "forgot" && isRecoveryConfigurationError(err)) {
+        setRecoveryUnavailable(true);
+        setNotice(
+          "Password reset isn't available right now. Please contact your gym administrator.",
+        );
+      } else {
+        setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      }
     } finally {
       lock.current = false;
       setBusy(false);
@@ -132,16 +151,10 @@ export function AccountForm() {
     await run(async () => {
       const normalized = email.trim().toLowerCase();
       if (mode === "forgot") {
-        if (!cloudAuthAvailable && staff) {
-          setNotice(
-            "Ask the gym owner to reset the receptionist password in Settings → Staff Access.",
-          );
-          return;
-        }
-        if (!cloudAuthAvailable)
-          throw new Error(
-            "Account recovery is temporarily unavailable because the authentication service is not configured.",
-          );
+        if (staff) return;
+        // The unavailable state already explains why the reset form is hidden.
+        // Keep this guard non-erroring if a stale/programmatic submit reaches it.
+        if (!cloudAuthAvailable) return;
         const { error } = await supabase.auth.resetPasswordForEmail(normalized, {
           redirectTo: `${window.location.origin}/login`,
         });
@@ -230,6 +243,15 @@ export function AccountForm() {
         : mode === "reset"
           ? "Set a new password"
           : "Welcome back";
+  const authUnavailableNotice = !cloudAuthAvailable
+    ? mode === "forgot" && staff
+      ? ""
+      : mode === "forgot"
+        ? "Password recovery is not enabled on this site. The site administrator must configure authentication before reset emails can be sent."
+        : mode === "signup"
+          ? "Account creation is unavailable because cloud authentication is not configured for this deployment."
+          : "Sign-in is unavailable because cloud authentication is not configured for this deployment."
+    : "";
   const field = (
     id: string,
     label: string,
@@ -245,6 +267,7 @@ export function AccountForm() {
         required
         type={type}
         autoComplete={autoComplete}
+        disabled={busy || checking || !cloudAuthAvailable}
         value={value}
         onChange={(e) => set(e.target.value)}
       />
@@ -254,12 +277,30 @@ export function AccountForm() {
     <div className="w-full space-y-5">
       <div>
         <h1 className="font-display text-3xl tracking-wide">{title}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {mode === "signup"
-            ? "Create an owner account with your own empty gym workspace."
-            : "Sign in to your gym workspace."}
-        </p>
+        {!(mode === "forgot" && !cloudAuthAvailable && !staff) && (
+          <p className="mt-2 text-sm text-muted-foreground">
+            {mode === "signup"
+              ? "Create an owner account with your own empty gym workspace."
+              : mode === "forgot"
+                ? staff
+                  ? "Ask your gym owner to reset your receptionist password."
+                  : "Enter your account email to request a secure password reset."
+                : mode === "reset"
+                  ? "Choose a new password for your gym workspace."
+                  : "Sign in to your gym workspace."}
+          </p>
+        )}
       </div>
+      {authUnavailableNotice && (
+        <p
+          role="status"
+          className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm text-muted-foreground"
+        >
+          {mode === "forgot" && !cloudAuthAvailable
+            ? "Password reset emails are unavailable until this site's authentication is configured. Contact the site administrator."
+            : authUnavailableNotice}
+        </p>
+      )}
       {mode === "signin" && (
         <div className="grid grid-cols-2 gap-2">
           {[false, true].map((value) => (
@@ -308,7 +349,19 @@ export function AccountForm() {
             </>
           )}
           {mode !== "reset" &&
-            field("account-email", "Email address", email, setEmail, "email", "email")}
+            !(mode === "forgot" && staff) &&
+            !(mode === "forgot" && !cloudAuthAvailable) &&
+            field(
+              "account-email",
+              "Email address",
+              email,
+              (value) => {
+                setEmail(value);
+                if (mode === "forgot") setError("");
+              },
+              "email",
+              "email",
+            )}
           {mode !== "forgot" && (
             <div className="space-y-2">
               <Label htmlFor="account-password">
@@ -321,6 +374,7 @@ export function AccountForm() {
                   type={visible ? "text" : "password"}
                   minLength={mode === "signin" ? 1 : 12}
                   className="pr-12"
+                  disabled={!cloudAuthAvailable}
                   autoComplete={mode === "signin" ? "current-password" : "new-password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -352,7 +406,8 @@ export function AccountForm() {
           {mode === "signin" && (
             <button
               type="button"
-              className="text-sm text-primary hover:underline"
+              className="text-sm text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+              disabled={busy || checking}
               onClick={() => switchMode("forgot")}
             >
               Forgot password?
@@ -405,33 +460,59 @@ export function AccountForm() {
               {notice}
             </p>
           )}
-          <Button
-            type="submit"
-            disabled={mode === "reset" && !recoverySession}
-            className="h-11 w-full"
-          >
-            {(busy || checking) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {checking
-              ? "Checking your session…"
-              : busy
-                ? "Please wait…"
-                : mode === "signup"
-                  ? "Create account"
-                  : mode === "forgot"
-                    ? staff
-                      ? "Show recovery steps"
-                      : "Send reset link"
-                    : mode === "reset"
-                      ? "Save new password"
-                      : "Sign in"}
-          </Button>
+          {mode === "forgot" && staff && recoveryStepsVisible && (
+            <p
+              id="staff-recovery-steps"
+              role="status"
+              className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm"
+            >
+              Ask the gym owner to reset the receptionist password in Settings → Staff Access.
+            </p>
+          )}
+          {!(mode === "forgot" && !cloudAuthAvailable && !staff) && (
+            <Button
+              type={mode === "forgot" && staff ? "button" : "submit"}
+              aria-expanded={mode === "forgot" && staff ? recoveryStepsVisible : undefined}
+              aria-controls={mode === "forgot" && staff ? "staff-recovery-steps" : undefined}
+              disabled={
+                (mode === "reset" && !recoverySession) ||
+                (mode === "forgot" && recoveryUnavailable) ||
+                (!cloudAuthAvailable && !(mode === "forgot" && staff))
+              }
+              onClick={
+                mode === "forgot" && staff
+                  ? () => setRecoveryStepsVisible((visible) => !visible)
+                  : undefined
+              }
+              className="h-11 w-full"
+            >
+              {(busy || checking) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {checking
+                ? "Checking your session…"
+                : busy
+                  ? "Please wait…"
+                  : mode === "signup"
+                    ? "Create account"
+                    : mode === "forgot"
+                      ? staff
+                        ? recoveryStepsVisible
+                          ? "Hide recovery steps"
+                          : "Show recovery steps"
+                        : recoveryUnavailable
+                          ? "Reset unavailable"
+                          : "Send reset link"
+                      : mode === "reset"
+                        ? "Save new password"
+                        : "Sign in"}
+            </Button>
+          )}
         </fieldset>
       </form>
       {mode !== "reset" && (
         <button
           type="button"
-          disabled={busy || checking}
-          className="w-full text-sm text-primary hover:underline"
+          disabled={busy || checking || (!cloudAuthAvailable && mode === "signin")}
+          className="w-full text-sm text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
           onClick={() => {
             setStaff(false);
             switchMode(mode === "signin" ? "signup" : "signin");
@@ -439,12 +520,6 @@ export function AccountForm() {
         >
           {mode === "signin" ? "New here? Sign up" : "Already have an account? Sign in"}
         </button>
-      )}
-      {mode === "signin" && !cloudAuthAvailable && import.meta.env.DEV && (
-        <p className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
-          Supabase authentication is not configured for this local build. Connect the authentication
-          service to sign in or create an account.
-        </p>
       )}
       {mode === "reset" && !recoverySession && (
         <Button

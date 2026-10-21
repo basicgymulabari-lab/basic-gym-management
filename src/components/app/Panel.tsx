@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +20,7 @@ export function PageHeader({
         {subtitle && <p className="mt-1 break-words text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {actions && (
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
+        <div className="flex w-full max-w-full flex-wrap items-center gap-2 sm:w-auto sm:min-w-0 sm:max-w-full">
           {actions}
         </div>
       )}
@@ -29,6 +29,7 @@ export function PageHeader({
 }
 
 export function Panel({
+  id,
   title,
   description,
   actions,
@@ -36,7 +37,9 @@ export function Panel({
   className,
   collapsible = false,
   defaultExpanded = true,
+  mobileDefaultExpanded,
 }: {
+  id?: string;
   title?: string;
   description?: string;
   actions?: ReactNode;
@@ -44,12 +47,29 @@ export function Panel({
   className?: string;
   collapsible?: boolean;
   defaultExpanded?: boolean;
+  mobileDefaultExpanded?: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const userControlledExpanded = useRef(false);
   const contentId = useId();
+
+  useEffect(() => {
+    if (!collapsible || mobileDefaultExpanded === undefined) return;
+
+    const mobileViewport = window.matchMedia("(max-width: 639px)");
+    const syncResponsiveDefault = () => {
+      if (userControlledExpanded.current) return;
+      setExpanded(mobileViewport.matches ? mobileDefaultExpanded : defaultExpanded);
+    };
+
+    syncResponsiveDefault();
+    mobileViewport.addEventListener("change", syncResponsiveDefault);
+    return () => mobileViewport.removeEventListener("change", syncResponsiveDefault);
+  }, [collapsible, defaultExpanded, mobileDefaultExpanded]);
 
   return (
     <section
+      id={id}
       className={cn("surface-panel hairline-top relative overflow-hidden rounded-2xl", className)}
     >
       {collapsible && title ? (
@@ -59,7 +79,10 @@ export function Panel({
             aria-expanded={expanded}
             aria-controls={contentId}
             className="flex min-w-0 items-center justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-secondary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold sm:px-5"
-            onClick={() => setExpanded((current) => !current)}
+            onClick={() => {
+              userControlledExpanded.current = true;
+              setExpanded((current) => !current);
+            }}
           >
             <span className="min-w-0">
               <span className="block break-words font-display text-xl tracking-wide sm:truncate">
@@ -87,7 +110,7 @@ export function Panel({
             </div>
           )}
         </div>
-      ) : (title || actions) ? (
+      ) : title || actions ? (
         <div className="grid grid-cols-1 items-start gap-3 border-b border-border px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
           <div className="min-w-0">
             {title && (
@@ -125,9 +148,22 @@ export function Panel({
   );
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+export function EmptyState({
+  title,
+  hint,
+  className,
+}: {
+  title: string;
+  hint?: string;
+  className?: string;
+}) {
   return (
-    <div className="grid place-items-center rounded-xl border border-dashed border-border px-6 py-14 text-center">
+    <div
+      className={cn(
+        "grid place-items-center rounded-xl border border-dashed border-border px-6 py-14 text-center",
+        className,
+      )}
+    >
       <p className="font-display text-lg tracking-wide text-muted-foreground">{title}</p>
       {hint && <p className="mt-1 max-w-sm text-sm text-muted-foreground/70">{hint}</p>}
     </div>

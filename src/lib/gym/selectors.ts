@@ -15,6 +15,26 @@ export const money = (n: number, currency = "₹") =>
 
 export const shortDate = formatShortDate;
 
+/**
+ * Format a locally recorded timestamp without inventing midnight for older
+ * records that only stored a calendar date.
+ */
+export const paymentTime = (value: string | Date) => {
+  const hasTime =
+    value instanceof Date || (typeof value === "string" && /[T ]\d{2}:\d{2}/.test(value));
+  const date = value instanceof Date ? value : new Date(value);
+  if (!hasTime || !Number.isFinite(date.getTime())) return null;
+  return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+};
+
+export const shortDateTime = (value: string | Date) => {
+  const time = paymentTime(value);
+  return time ? `${shortDate(value)} · ${time}` : shortDate(value);
+};
+
+export const trashedAttendance = (s: GymState) =>
+  (s.attendance ?? []).filter((record) => record.deletedAt);
+
 /** Compact date: 03 Aug 26 */
 export const compactDate = formatCompactDate;
 
@@ -56,7 +76,9 @@ export const daysUntil = (d: string | Date, now = new Date()) =>
   Math.round(calendarDayNumber(parseCalendarDate(d)) - calendarDayNumber(now));
 
 /** Frozen terms preserve the remaining calendar days from the moment they were paused. */
-export function membershipDaysLeft(membership: Pick<Membership, "endDate" | "frozen" | "frozenAt">) {
+export function membershipDaysLeft(
+  membership: Pick<Membership, "endDate" | "frozen" | "frozenAt">,
+) {
   if (membership.frozen && membership.frozenAt) {
     const frozenAt = parseCalendarDate(membership.frozenAt);
     const endDate = parseCalendarDate(membership.endDate);
@@ -89,6 +111,26 @@ type SelectorIndexes = {
 // indexes keeps dashboard selectors linear for large rosters without retaining
 // old workspaces or allowing one revision's values to leak into another.
 const selectorIndexesByState = new WeakMap<GymState, SelectorIndexes>();
+const currentMembershipByState = new WeakMap<GymState, Map<string, Membership>>();
+
+function currentMembershipIndex(s: GymState): Map<string, Membership> {
+  const cached = currentMembershipByState.get(s);
+  if (cached) return cached;
+
+  const currentMembershipByMember = new Map<string, Membership>();
+  const latestMembershipEndByMember = new Map<string, number>();
+  for (const membership of s.memberships) {
+    const endTime = new Date(membership.endDate).getTime();
+    const previousEnd = latestMembershipEndByMember.get(membership.memberId);
+    if (previousEnd === undefined || endTime > previousEnd) {
+      currentMembershipByMember.set(membership.memberId, membership);
+      latestMembershipEndByMember.set(membership.memberId, endTime);
+    }
+  }
+
+  currentMembershipByState.set(s, currentMembershipByMember);
+  return currentMembershipByMember;
+}
 
 function addIndexedMoney(
   index: Map<string, number>,
@@ -103,16 +145,7 @@ function selectorIndexes(s: GymState): SelectorIndexes {
   const cached = selectorIndexesByState.get(s);
   if (cached) return cached;
 
-  const currentMembershipByMember = new Map<string, Membership>();
-  const latestMembershipEndByMember = new Map<string, number>();
-  for (const membership of s.memberships) {
-    const endTime = new Date(membership.endDate).getTime();
-    const previousEnd = latestMembershipEndByMember.get(membership.memberId);
-    if (previousEnd === undefined || endTime > previousEnd) {
-      currentMembershipByMember.set(membership.memberId, membership);
-      latestMembershipEndByMember.set(membership.memberId, endTime);
-    }
-  }
+  const currentMembershipByMember = currentMembershipIndex(s);
 
   const paymentsByMembership = new Map<string, number>();
   const paymentsBySale = new Map<string, number>();
@@ -151,7 +184,7 @@ function selectorIndexes(s: GymState): SelectorIndexes {
 }
 
 export function currentMembership(s: GymState, memberId: string): Membership | undefined {
-  return selectorIndexes(s).currentMembershipByMember.get(memberId);
+  return currentMembershipIndex(s).get(memberId);
 }
 
 export function membershipHistory(s: GymState, memberId: string) {
@@ -182,17 +215,47 @@ export type MembershipRosterEntry = {
  * rather than being counted as expired or silently dropped from the roster.
  */
 export function membershipRoster(s: GymState): MembershipRosterEntry[] {
-  return gymMembers(s)
-    .map((member) => ({
+  const currentByMember = currentMembershipIndex(s);
+  const rows = gymMembers(s).map((member) => {
+    const ms = currentByMember.get(member.id);
+    let status: MemberStatus = "unassigned";
+    if (ms) {
+      if (ms.frozen) status = "frozen";
+      else {
+        const left = daysUntil(ms.endDate);
+        status = left < 0 ? "expired" : left <= s.settings.expiryReminderDays ? "expiring" : "active";
+      }
+    }
+    return {
       member,
-      ms: currentMembership(s, member.id),
-      status: statusOf(s, member.id),
-    }))
-    .sort((a, b) => {
-      if (!a.ms) return b.ms ? 1 : a.member.name.localeCompare(b.member.name);
-      if (!b.ms) return -1;
-      return +parseCalendarDate(a.ms.endDate) - +parseCalendarDate(b.ms.endDate);
-    });
+      ms,
+      status,
+      endTime: ms ? parseCalendarDate(ms.endDate).getTime() : Number.POSITIVE_INFINITY,
+    };
+  });
+
+  rows.sort((a, b) => {
+    if (!a.ms) return b.ms ? 1 : a.member.name.localeCompare(b.member.name);
+    if (!b.ms) return -1;
+    return a.endTime - b.endTime;
+  });
+
+  return rows.map(({ member, ms, status }) => ({ member, ms, status }));
+}
+
+/** Filters membership follow-up rows as the user types, without requiring a form submit. */
+export function searchMembershipRoster(
+  rows: readonly MembershipRosterEntry[],
+  query: string,
+): MembershipRosterEntry[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [...rows];
+
+  return rows.filter(({ member }) =>
+    [member.name, member.phone, member.email].some((value) =>
+      value.toLowerCase().includes(normalizedQuery),
+    ),
+  );
 }
 
 export const isCurrentMemberStatus = (status: MemberStatus) =>
@@ -429,6 +492,26 @@ export function birthdayOffset(dob: string, now = new Date()) {
 export function buildNotifications(s: GymState): Notification[] {
   const list: Notification[] = [];
 
+  const memberForActivity = (activity: GymState["activities"][number]): Member | undefined => {
+    if (activity.memberId) return s.members.find((member) => member.id === activity.memberId);
+
+    // Older saved activity rows did not store a member ID. Link only when the
+    // description contains one unambiguous, complete member name.
+    const text = `${activity.title} ${activity.description}`;
+    const matches = s.members
+      .filter((member) => {
+        const name = member.name.trim();
+        if (!name) return false;
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, "iu").test(text);
+      })
+      .sort((a, b) => b.name.trim().length - a.name.trim().length);
+    if (!matches.length) return undefined;
+    const longestNameLength = matches[0]!.name.trim().length;
+    const longestMatches = matches.filter((member) => member.name.trim().length === longestNameLength);
+    return longestMatches.length === 1 ? longestMatches[0] : undefined;
+  };
+
   activeMembers(s).forEach((m) => {
     const due = dueFor(s, m.id);
     if (due > 0) {
@@ -536,6 +619,7 @@ export function buildNotifications(s: GymState): Notification[] {
   }
 
   s.activities.slice(0, 8).forEach((a) => {
+    const member = memberForActivity(a);
     list.push({
       id: `act_${a.id}`,
       category: "system",
@@ -543,6 +627,7 @@ export function buildNotifications(s: GymState): Notification[] {
       description: a.description,
       date: a.date,
       tone: "info",
+      ...(member ? { href: `/members/${member.id}` } : {}),
     });
   });
 

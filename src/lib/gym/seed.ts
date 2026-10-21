@@ -10,6 +10,7 @@ import type {
   Product,
   Sale,
 } from "./types";
+import { DEFAULT_PRODUCT_CATEGORIES } from "./types";
 
 export const uid = (prefix = "id") =>
   `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-4)}`;
@@ -308,7 +309,10 @@ const NOTE_TITLES = [
 
 export function buildSeed(memberLimit = MEMBER_SEED.length): GymState {
   const now = today();
-  const templateMembers = MEMBER_SEED.slice(0, Math.max(1, Math.min(MEMBER_SEED.length, memberLimit)));
+  const templateMembers = MEMBER_SEED.slice(
+    0,
+    Math.max(1, Math.min(MEMBER_SEED.length, memberLimit)),
+  );
   const members: Member[] = [];
   const memberships: Membership[] = [];
   const payments: Payment[] = [];
@@ -484,7 +488,12 @@ export function buildSeed(memberLimit = MEMBER_SEED.length): GymState {
     ["payment_received", "Payment received", "₹4,000 from Dipesh Poudel", 0.6],
     ["product_sold", "Product sold", "Whey Protein 1kg × 1 sold to Pooja Adhikari", 1.2],
     ["membership_renewed", "Membership renewed", "Ramesh K.C. renewed Annual Platinum", 2],
-    ["invoice_generated", "Invoice generated", "Invoice INV-1042 created for Samikshya Bhandari", 3],
+    [
+      "invoice_generated",
+      "Invoice generated",
+      "Invoice INV-1042 created for Samikshya Bhandari",
+      3,
+    ],
     ["membership_expired", "Membership expired", "Prakash Rai's membership expired", 4],
     ["product_added", "Product added", "Knee Wraps added to inventory", 5],
     ["member_added", "New member registered", "Pooja Adhikari joined Personal Training", 7],
@@ -585,7 +594,9 @@ export function buildSeed(memberLimit = MEMBER_SEED.length): GymState {
     plans: PLANS,
     memberships,
     payments,
+    attendance: [],
     products,
+    productCategories: [...DEFAULT_PRODUCT_CATEGORIES],
     sales,
     activities,
     expenses,

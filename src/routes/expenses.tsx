@@ -251,7 +251,10 @@ function ExpensesPage() {
         }
       />
 
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div
+        data-testid="expense-period-controls"
+        className="mb-6 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap"
+      >
         {RANGES.map((r) => (
           <button
             key={r}
@@ -259,7 +262,7 @@ function ExpensesPage() {
               setRange(r);
               setPage(1);
             }}
-            className={`rounded-full border px-4 py-1.5 text-xs font-medium capitalize transition-colors ${
+            className={`flex justify-center rounded-full border px-4 py-1.5 text-xs font-medium capitalize transition-colors ${
               range === r
                 ? "border-gold/50 bg-gold/15 text-gold"
                 : "border-border text-muted-foreground hover:text-foreground"
@@ -273,7 +276,7 @@ function ExpensesPage() {
             setRange("custom");
             setPage(1);
           }}
-          className={`rounded-full border px-4 py-1.5 text-xs font-medium transition-colors ${
+          className={`flex justify-center rounded-full border px-4 py-1.5 text-xs font-medium transition-colors ${
             range === "custom"
               ? "border-gold/50 bg-gold/15 text-gold"
               : "border-border text-muted-foreground hover:text-foreground"
@@ -309,14 +312,14 @@ function ExpensesPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Metric
           icon={Wallet}
-          label={`Collected revenue · ${rangeLabel}`}
+          label={`Revenue · ${rangeLabel}`}
           value={money(revenue, cur)}
-          hint="Membership payments + product sales"
+          hint="Collected membership and product payments"
           tone="success"
         />
         <Metric
           icon={TrendingDown}
-          label={`Total expenses · ${rangeLabel}`}
+          label={`Expenses · ${rangeLabel}`}
           value={money(expenses, cur)}
           hint="Every expense entry in range"
           tone="warning"
@@ -332,23 +335,29 @@ function ExpensesPage() {
 
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         <Panel title={`Expenses — ${range}`}>
-          <div className="h-64 w-full">
+          <div className="h-64 w-full" data-testid="expense-chart">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={series}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis
                   dataKey="label"
                   stroke="#8b8b8b"
-                  fontSize={10}
+                  fontSize={12}
                   tickLine={false}
                   axisLine={false}
                 />
                 <YAxis
                   stroke="#8b8b8b"
-                  fontSize={11}
+                  fontSize={12}
                   tickLine={false}
                   axisLine={false}
-                  width={56}
+                  width={68}
+                  tickFormatter={(value: number) =>
+                    `${cur}${new Intl.NumberFormat("en-IN", {
+                      notation: "compact",
+                      maximumFractionDigits: 1,
+                    }).format(value)}`
+                  }
                 />
                 <Tooltip
                   cursor={{ fill: "rgba(212,175,55,0.08)" }}
@@ -440,7 +449,7 @@ function ExpensesPage() {
           />
         </div>
 
-        <div className="mt-5 overflow-x-auto">
+        <div className="mt-5 hidden overflow-x-auto xl:block">
           {paged.length === 0 ? (
             <EmptyState
               title="No expenses found"
@@ -544,6 +553,106 @@ function ExpensesPage() {
           )}
         </div>
 
+        {paged.length > 0 && (
+          <ul className="mt-5 grid gap-3 sm:grid-cols-2 xl:hidden" aria-label="Expenses">
+            {paged.map((e) => (
+              <li
+                key={e.id}
+                data-testid="expense-responsive-card"
+                className="min-w-0 rounded-xl border border-border bg-secondary/15 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-gold">
+                      {e.expenseNo}
+                      {e.locked !== false ? (
+                        <Lock className="h-3.5 w-3.5 text-muted-foreground" aria-label="Locked" />
+                      ) : (
+                        <LockOpen className="h-3.5 w-3.5 text-warning" aria-label="Unlocked" />
+                      )}
+                    </p>
+                    <p className="mt-1 break-words font-medium">{e.title}</p>
+                  </div>
+                  <p className="shrink-0 text-right font-semibold text-gold">{money(e.amount, cur)}</p>
+                </div>
+                {e.notes && <p className="mt-2 break-words text-xs text-muted-foreground">{e.notes}</p>}
+                <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border/70 pt-3">
+                  <div>
+                    <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Category</dt>
+                    <dd className="mt-1 break-words text-sm">{e.category}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Method</dt>
+                    <dd className="mt-1 capitalize text-sm">{e.method}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Date</dt>
+                    <dd className="mt-1 text-sm">{shortDate(e.date)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Attachment</dt>
+                    <dd className="mt-1 text-sm">
+                      {e.attachment ? (
+                        <button
+                          type="button"
+                          onClick={() => setPreview(e)}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-gold hover:underline"
+                        >
+                          <Paperclip className="h-3.5 w-3.5" /> View file
+                        </button>
+                      ) : (
+                        <span className="text-muted-foreground">None</span>
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+                <div className="mt-3 flex items-center justify-end gap-1 border-t border-border/70 pt-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9"
+                    aria-label={`Edit expense ${e.expenseNo}`}
+                    onClick={() => {
+                      setEditing(e);
+                      setFormOpen(true);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-9 w-9 ${
+                      e.locked !== false
+                        ? "cursor-not-allowed text-muted-foreground/40"
+                        : "text-destructive hover:text-destructive"
+                    }`}
+                    aria-label={
+                      e.locked !== false
+                        ? `Expense ${e.expenseNo} is locked. Edit and unlock before deleting`
+                        : `Delete expense ${e.expenseNo}`
+                    }
+                    title={
+                      e.locked !== false
+                        ? "Locked — open Edit Expense and unlock it before deleting"
+                        : "Move expense to Trash"
+                    }
+                    onClick={() => {
+                      if (e.locked !== false) {
+                        toast.info("This expense is locked. Open the pencil icon and unlock it first.");
+                        return;
+                      }
+                      setConfirm(e);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <TablePager page={page} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
       </Panel>
 
@@ -610,14 +719,16 @@ function Metric({
     warning: "text-warning border-warning/35 bg-warning/10",
   };
   return (
-    <div className="surface-panel flex items-center gap-4 rounded-2xl p-5">
+    <div className="surface-panel flex min-w-0 items-center gap-4 rounded-2xl p-5">
       <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${map[tone]}`}>
         <Icon className="h-5 w-5" />
       </span>
-      <div className="min-w-0">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] leading-snug uppercase tracking-[0.12em] text-muted-foreground">
+          {label}
+        </p>
         <p className="truncate font-display text-2xl">{value}</p>
-        <p className="truncate text-[11px] text-muted-foreground">{hint}</p>
+        <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p>
       </div>
     </div>
   );

@@ -29,10 +29,14 @@ function LoginPage() {
             </p>
           </div>
           <p className="border-t border-border pt-6 text-sm text-muted-foreground">
-            Sign in with Google or your owner email and password.
+            Secure, role-based access for gym owners and their teams.
           </p>
         </section>
         <section className="min-w-0 bg-card p-6 sm:p-10 lg:min-h-[560px]">
+          <div className="mb-8 flex items-center gap-3 text-gold lg:hidden">
+            <Dumbbell aria-hidden="true" className="h-7 w-7" />
+            <p className="font-display text-xl tracking-[0.22em]">IRONVAULT</p>
+          </div>
           <AccountForm />
         </section>
       </div>
