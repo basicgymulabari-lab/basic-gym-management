@@ -39,8 +39,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { REVENUE_METRICS, type RevenueMetric } from "@/lib/gym/selectors";
-import type { CalendarSystem, PhoneCountry, ReceptionistPermissions } from "@/lib/gym/types";
+import type {
+  CalendarSystem,
+  GymTimeZone,
+  PhoneCountry,
+  ReceptionistPermissions,
+} from "@/lib/gym/types";
 import { PHONE_COUNTRIES } from "@/lib/gym/phone";
+import { defaultTimeZoneForCountry, TIME_ZONE_OPTIONS } from "@/lib/gym/time";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { APP_TOUR_REQUEST_KEY } from "@/components/app/OnboardingTour";
 import {
@@ -495,12 +501,31 @@ function SettingsPage() {
                 className="cursor-default select-none bg-muted/40 text-muted-foreground"
               />
             </div>
+            <div className="space-y-2">
+              <Label>Time zone</Label>
+              <Select
+                value={s.timeZone ?? defaultTimeZoneForCountry(s.phoneCountry)}
+                onValueChange={(selected) => updateSettings({ timeZone: selected as GymTimeZone })}
+              >
+                <SelectTrigger aria-label="Time zone">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIME_ZONE_OPTIONS.map((timeZone) => (
+                    <SelectItem key={timeZone.value} value={timeZone.value}>
+                      {timeZone.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
             Calendar selection controls displayed dates. Phone country applies its dialing code to
             gym, member, emergency-contact and walk-in customer numbers. It also selects that
-            country&apos;s currency symbol automatically. The currency symbol cannot be edited
-            separately.
+            country&apos;s currency symbol automatically. Time zone controls displayed times; it is
+            selected automatically from the phone country until you choose a different time zone.
+            The currency symbol cannot be edited separately.
           </p>
         </Panel>
 

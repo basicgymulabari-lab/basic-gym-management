@@ -7,6 +7,7 @@ import {
   parseCalendarDate,
 } from "./calendar";
 import { addMoney, multiplyMoney, subtractMoney, sumMoney } from "./money";
+import { currentTimeZone, formatTime } from "./time";
 
 export const DAY = 24 * 60 * 60 * 1000;
 
@@ -24,7 +25,7 @@ export const paymentTime = (value: string | Date) => {
     value instanceof Date || (typeof value === "string" && /[T ]\d{2}:\d{2}/.test(value));
   const date = value instanceof Date ? value : new Date(value);
   if (!hasTime || !Number.isFinite(date.getTime())) return null;
-  return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+  return formatTime(date);
 };
 
 export const shortDateTime = (value: string | Date) => {
@@ -38,13 +39,17 @@ export const trashedAttendance = (s: GymState) =>
 /** Compact date: 03 Aug 26 */
 export const compactDate = formatCompactDate;
 
-export const dateTime = (d: string | Date) =>
-  new Date(d).toLocaleString("en-IN", {
+export const dateTime = (d: string | Date) => {
+  const date = new Date(d);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-IN", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  });
+    timeZone: currentTimeZone(),
+  }).format(date);
+};
 
 /** Whether a date falls from the start of the current local month through today. */
 export function isInCurrentMonthToDate(value: string | Date, now = new Date()) {

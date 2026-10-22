@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { AppDatePicker } from "@/components/app/AppDatePicker";
 import { getCurrentSession, useGym } from "@/lib/gym/store";
 import { formatDayMonth, localDateInput } from "@/lib/gym/calendar";
+import { formatTime, minutesSinceMidnight } from "@/lib/gym/time";
 import type { GymState } from "@/lib/gym/types";
 import { addMoney, multiplyMoney, subtractMoney, sumMoney } from "@/lib/gym/money";
 import {
@@ -153,10 +154,8 @@ function customRevenueSeries(state: GymState, start: string, end: string) {
 }
 
 function isWithinTimeWindow(value: string, start: string, end: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-
-  const minutes = date.getHours() * 60 + date.getMinutes();
+  const minutes = minutesSinceMidnight(value);
+  if (minutes === null) return false;
   const startMinutes = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5));
   const endMinutes = Number(end.slice(0, 2)) * 60 + Number(end.slice(3, 5));
 
@@ -167,10 +166,7 @@ function isWithinTimeWindow(value: string, start: string, end: string) {
 }
 
 function formatClockTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return formatTime(value);
 }
 
 function ReportsPage() {
@@ -236,7 +232,7 @@ function ReportsPage() {
     collectionStartTime === "00:00" && collectionEndTime === "23:59";
   const collectionDetailPeriodDescription =
     range === "daily" && !isAllDayCollectionWindow
-      ? `today from ${collectionStartTime} to ${collectionEndTime} (local time)`
+      ? `today from ${collectionStartTime} to ${collectionEndTime} (gym time)`
       : collectionPeriodDescription;
   const collectionPayments = state.payments
     .filter(
@@ -303,7 +299,7 @@ function ReportsPage() {
             [collectionDetailTitle, ""],
             [`Payments recorded ${collectionDetailPeriodDescription}`, String(collectionPayments.length)],
             ...(range === "daily"
-              ? [["Collection time window", `${collectionStartTime}–${collectionEndTime} local time`]]
+              ? [["Collection time window", `${collectionStartTime}–${collectionEndTime} gym time`]]
               : []),
             [
               "Membership received",
@@ -345,10 +341,7 @@ function ReportsPage() {
                 payment.kind,
                 payer,
                 payment.invoiceNo,
-                new Date(payment.date).toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }),
+                formatTime(payment.date, { hour: "2-digit" }),
                 String(payment.amount),
               ];
             }),
@@ -751,10 +744,7 @@ function ReportsPage() {
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
                           {saleDescription ?? payment.note ?? payment.kind} · {payment.invoiceNo} ·{" "}
-                          {new Date(payment.date).toLocaleTimeString(undefined, {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          {formatTime(payment.date, { hour: "2-digit" })}
                         </p>
                       </div>
                       <span className="font-medium tabular-nums">{money(payment.amount, cur)}</span>

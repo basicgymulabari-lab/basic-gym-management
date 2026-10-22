@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/select";
 import { InvoiceDialog, type InvoiceData } from "@/components/app/InvoiceDialog";
 import { localDateInput } from "@/lib/gym/calendar";
+import { formatTime } from "@/lib/gym/time";
 import { membershipEndDate } from "@/lib/gym/membership";
 import {
   addNote,
@@ -588,10 +589,7 @@ function MemberProfile() {
                           className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground"
                         >
                           <Clock3 className="h-4 w-4" />
-                          {new Date(record.checkedInAt).toLocaleTimeString([], {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
+                          {formatTime(record.checkedInAt)}
                         </p>
                         <Button
                           type="button"

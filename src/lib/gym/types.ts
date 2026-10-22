@@ -256,10 +256,18 @@ export type Settings = {
   revenueCardMetric?: "today" | "weekly" | "monthly" | "yearly" | "total";
   calendarSystem?: CalendarSystem;
   phoneCountry?: PhoneCountry;
+  timeZone?: GymTimeZone;
 };
 
 export type CalendarSystem = "gregorian" | "bikram_sambat";
 export type PhoneCountry = "nepal" | "india" | "usa";
+export type GymTimeZone =
+  | "Asia/Kathmandu"
+  | "Asia/Kolkata"
+  | "America/New_York"
+  | "America/Chicago"
+  | "America/Denver"
+  | "America/Los_Angeles";
 
 export type ReceptionistPermissions = {
   dashboard: boolean;

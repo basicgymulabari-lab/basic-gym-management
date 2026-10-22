@@ -58,9 +58,35 @@ try {
   const billing = await vite.ssrLoadModule("/src/lib/billing/client.ts");
   const selectors = await vite.ssrLoadModule("/src/lib/gym/selectors.ts");
   const calendar = await vite.ssrLoadModule("/src/lib/gym/calendar.ts");
+  const time = await vite.ssrLoadModule("/src/lib/gym/time.ts");
   const phone = await vite.ssrLoadModule("/src/lib/gym/phone.ts");
   const money = await vite.ssrLoadModule("/src/lib/gym/money.ts");
   const migration = await vite.ssrLoadModule("/src/lib/platform/member-migration.ts");
+  assert.equal(time.defaultTimeZoneForCountry("nepal"), "Asia/Kathmandu");
+  assert.equal(time.defaultTimeZoneForCountry("india"), "Asia/Kolkata");
+  assert.equal(time.defaultTimeZoneForCountry("usa"), "America/New_York");
+  assert.equal(time.resolveTimeZone("Invalid/Zone", "nepal"), "Asia/Kathmandu");
+  const timeZoneCases = [
+    ["Asia/Kathmandu", 345, "05:45"],
+    ["Asia/Kolkata", 330, "05:30"],
+    ["America/New_York", 1140, "19:00"],
+    ["America/Chicago", 1080, "18:00"],
+    ["America/Denver", 1020, "17:00"],
+    ["America/Los_Angeles", 960, "16:00"],
+  ];
+  for (const [zone, expectedMinutes, expectedClock] of timeZoneCases) {
+    time.configureTimeZone(zone);
+    assert.equal(time.currentTimeZone(), zone);
+    assert.equal(time.minutesSinceMidnight("2026-01-01T00:00:00.000Z"), expectedMinutes);
+    assert.equal(
+      time.formatTime("2026-01-01T00:00:00.000Z", {
+        hour: "2-digit",
+        hourCycle: "h23",
+      }),
+      expectedClock,
+    );
+  }
+  time.configureTimeZone(undefined, "india");
   assert.equal(
     await billing.withRequestDeadline(Promise.resolve("verified"), 50),
     "verified",

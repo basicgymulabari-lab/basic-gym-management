@@ -91,6 +91,7 @@ const state: GymState = {
     adminName: "Receipt QA",
     calendarSystem: "gregorian" as const,
     phoneCountry: "nepal" as const,
+    timeZone: "Asia/Kathmandu" as const,
   },
   members: [member],
   plans: [
@@ -401,6 +402,28 @@ test("payment history payer names open linked and uniquely matched member profil
   expect(errors, "payment history profile links should not produce browser errors").toEqual([]);
 });
 
+test("gym time zone setting updates payment timestamps across the workspace", async ({ page }) => {
+  let savedSettings: GymState["settings"] | undefined;
+  const errors = await installMockBackend(
+    page,
+    { onWorkspaceSave: (savedState) => (savedSettings = savedState.settings) },
+    state,
+  );
+  await signIn(page);
+  await page.goto("/settings");
+
+  const timeZoneSelect = page.getByRole("combobox", { name: "Time zone" });
+  await expect(timeZoneSelect).toContainText("Nepal — Kathmandu (NPT)");
+  await timeZoneSelect.click();
+  await page.getByRole("option", { name: "USA — Pacific (Los Angeles)" }).click();
+  await expect.poll(() => savedSettings?.timeZone).toBe("America/Los_Angeles");
+
+  await page.goto(`/members/${member.id}?tab=payments`);
+  const receiptRow = page.getByRole("row").filter({ hasText: "INV-QA-001" });
+  await expect(receiptRow).toContainText("3:00 am");
+  expect(errors, "changing the workspace time zone should not produce browser errors").toEqual([]);
+});
+
 async function signIn(page: Page) {
   await page.addInitScript((email) => {
     window.localStorage.setItem(`ironvault.app-tour.v1.${email.toLowerCase()}`, "done");
@@ -421,10 +444,11 @@ async function capturePaidReceipt(page: Page, evidenceDir: string, label: string
   await expect(receiptRow).toContainText("₹250");
   const rowText = await receiptRow.innerText();
   const expectedPaymentTime = await page.evaluate(() =>
-    new Date("2026-10-14T10:00:00.000Z").toLocaleTimeString("en-IN", {
+    new Intl.DateTimeFormat("en-IN", {
       hour: "numeric",
       minute: "2-digit",
-    }),
+      timeZone: "Asia/Kathmandu",
+    }).format(new Date("2026-10-14T10:00:00.000Z")),
   );
   await expect(receiptRow).toContainText(expectedPaymentTime);
   await receiptRow.getByRole("button", { name: "View invoice" }).click();

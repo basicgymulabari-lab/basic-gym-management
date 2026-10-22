@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { checkInMember, useGym } from "@/lib/gym/store";
 import { localDateInput, formatShortDate } from "@/lib/gym/calendar";
+import { formatTime } from "@/lib/gym/time";
 import { downloadCsv } from "@/lib/gym/csv";
 import { activeMembers, isWalkIn } from "@/lib/gym/selectors";
 import type { AttendanceRecord } from "@/lib/gym/types";
@@ -118,7 +119,7 @@ function AttendancePage() {
         record.memberPhone,
         record.shift ?? "Not assigned",
         formatShortDate(record.date),
-        new Date(record.checkedInAt).toLocaleTimeString(),
+        formatTime(record.checkedInAt),
       ]),
     ]);
   };
@@ -289,10 +290,7 @@ function AttendancePage() {
                       className="flex items-center gap-2 text-sm text-muted-foreground"
                     >
                       <Clock3 className="h-4 w-4" />
-                      {new Date(record.checkedInAt).toLocaleTimeString([], {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
+                      {formatTime(record.checkedInAt)}
                     </p>
                     <Button
                       type="button"

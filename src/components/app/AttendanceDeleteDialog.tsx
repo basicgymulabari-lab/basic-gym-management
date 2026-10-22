@@ -10,6 +10,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatShortDate } from "@/lib/gym/calendar";
+import { formatTime } from "@/lib/gym/time";
 import { deleteAttendanceRecord } from "@/lib/gym/store";
 import type { AttendanceRecord } from "@/lib/gym/types";
 
@@ -34,10 +35,7 @@ export function AttendanceDeleteDialog({
   };
 
   const time = record ? new Date(record.checkedInAt) : null;
-  const formattedTime =
-    time && Number.isFinite(time.getTime())
-      ? time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-      : "";
+  const formattedTime = time && Number.isFinite(time.getTime()) ? formatTime(time) : "";
 
   return (
     <AlertDialog

@@ -779,13 +779,13 @@ test("daily collection time window filters receipts, balance payments and produc
 
   await startTime.fill("04:00");
   await details.getByLabel("Collection end time").fill("11:45");
-  await expect(details).toContainText("today from 04:00 to 11:45 (local time)");
+  await expect(details).toContainText("today from 04:00 to 11:45 (gym time)");
   await expect(details).toContainText("2 payments recorded");
   await expect(details).toContainText("1 · ₹125");
 
   const products = details.locator('section[aria-labelledby="period-product-sales-heading"]');
   await expect(products).toContainText("Morning Snack");
-  await expect(products).toContainText(/10:30\s?AM/);
+  await expect(products).toContainText(/10:45\s?AM/i);
   await expect(products).not.toContainText("Whey Protein");
   const balances = details.locator('section[aria-labelledby="period-balance-payments-heading"]');
   await expect(balances).toContainText("Morning balance payment");
@@ -797,7 +797,7 @@ test("daily collection time window filters receipts, balance payments and produc
   const csvPath = await download.path();
   expect(csvPath).not.toBeNull();
   const csv = await readFile(csvPath!, "utf8");
-  expect(csv).toContain("Collection time window,04:00–11:45 local time");
+  expect(csv).toContain("Collection time window,04:00–11:45 gym time");
   expect(csv).toContain("Morning Snack (1 units)");
   expect(csv).not.toContain("INV-QA-003");
   expect(errors).toEqual([]);

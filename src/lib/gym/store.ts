@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { buildSeed, uid, iso } from "./seed";
 import { configureCalendarSystem, formatShortDate, localDateInput } from "./calendar";
+import { configureTimeZone } from "./time";
 import { phoneForCountry } from "./phone";
 import { membershipEndDate } from "./membership";
 import {
@@ -460,6 +461,7 @@ function emit() {
 function replaceState(nextState: GymState, syncCloud = true) {
   state = nextState;
   configureCalendarSystem(state.settings.calendarSystem);
+  configureTimeZone(state.settings.timeZone, state.settings.phoneCountry);
   if (syncCloud) scheduleCloudSave(state);
   else void queueOfflineWorkspaceSave();
   notifySyncStatus();
@@ -523,6 +525,7 @@ export function __setStateForLogicTests(next: GymState, session: CurrentSession 
   }
   state = structuredClone(next);
   configureCalendarSystem(state.settings.calendarSystem);
+  configureTimeZone(state.settings.timeZone, state.settings.phoneCountry);
   currentSession = session ? { ...session } : null;
   validatedCloudSession = null;
   cloudSessionValidationPromise = null;
@@ -925,6 +928,7 @@ export async function completeCloudLogin(options: { recordLoginEvent?: boolean }
       : structuredClone(serverState);
     cloudSyncMessage = null;
     configureCalendarSystem(state.settings.calendarSystem);
+    configureTimeZone(state.settings.timeZone, state.settings.phoneCountry);
 
     // One-time migration for legacy inline photos/receipts. Persisted cloud
     // workspaces must reference private Storage objects instead of embedding
@@ -1012,6 +1016,7 @@ export async function completeCloudLogin(options: { recordLoginEvent?: boolean }
             cloudSyncedState = stateFromCloudWorkspace(latest.state);
             cloudSyncMessage = null;
             configureCalendarSystem(state.settings.calendarSystem);
+            configureTimeZone(state.settings.timeZone, state.settings.phoneCountry);
           }
         } else {
           await Promise.all(
@@ -1145,6 +1150,7 @@ async function restoreOfflineSession(): Promise<boolean> {
     currentPeriodEnd: currentSession.subscriptionCurrentPeriodEnd ?? null,
   });
   configureCalendarSystem(state.settings.calendarSystem);
+  configureTimeZone(state.settings.timeZone, state.settings.phoneCountry);
   installOnlineSync();
   notifySyncStatus();
   emit();
