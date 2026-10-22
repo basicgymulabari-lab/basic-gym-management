@@ -395,30 +395,48 @@ test("reports period selectors, custom range, print, CSV, and responsive states"
   await expect(mobileDetails).toContainText("Whey Protein");
   await expect(mobileDetails).toContainText("Membership dues collected");
   const mobileDocumentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-  const mobileViewportWidth = await page.evaluate(() => document.documentElement.clientWidth);
-  const mobileOverflowCandidates = await page.evaluate(() =>
-    Array.from(document.querySelectorAll<HTMLElement>("body *"))
+  const mobileViewportWidth = await page.evaluate(() => window.innerWidth);
+  const mobileOverflowDiagnostics = await page.evaluate(() => {
+    const elements = Array.from(document.querySelectorAll<HTMLElement>("html, body, body *"))
       .map((element) => {
         const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
         return {
           element: `${element.tagName.toLowerCase()}${element.className ? `.${String(element.className).replace(/\s+/g, ".")}` : ""}`,
           left: Math.round(rect.left),
           right: Math.round(rect.right),
           width: Math.round(rect.width),
+          scrollWidth: element.scrollWidth,
+          clientWidth: element.clientWidth,
+          overflowX: style.overflowX,
+          transform: style.transform,
         };
       })
-      .filter((element) => element.right > window.innerWidth + 1 && element.width > 0)
-      .sort((left, right) => right.right - left.right)
-      .slice(0, 8),
-  );
-  expect(
-    mobileDocumentWidth,
-    `daily collection details should fit a mobile viewport; overflow candidates: ${JSON.stringify(mobileOverflowCandidates)}`,
-  ).toBeLessThanOrEqual(mobileViewportWidth + 1);
+      .filter(
+        (element) =>
+          element.right > window.innerWidth + 1 ||
+          element.left < -1 ||
+          element.scrollWidth > element.clientWidth + 1,
+      )
+      .sort((left, right) => right.scrollWidth - left.scrollWidth || right.right - left.right)
+      .slice(0, 12);
+    return {
+      viewportWidth: window.innerWidth,
+      document: {
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      },
+      elements,
+    };
+  });
   await page.screenshot({
     path: path.join(evidenceDir, "today-collections-mobile.png"),
     fullPage: true,
   });
+  expect(
+    mobileDocumentWidth,
+    `daily collection details should fit a mobile viewport; diagnostics: ${JSON.stringify(mobileOverflowDiagnostics)}`,
+  ).toBeLessThanOrEqual(mobileViewportWidth + 1);
   await page.setViewportSize({ width: 1440, height: 1000 });
   const dailyDownloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export CSV" }).click();
@@ -583,9 +601,7 @@ test("collection balance recipients and product buyers open their member profile
     .filter({ has: page.getByRole("heading", { name: "Today's collection details" }) });
   await expect(details).toBeVisible();
 
-  const balanceSection = details.locator(
-    'section[aria-labelledby="period-dues-payments-heading"]',
-  );
+  const balanceSection = details.locator('section[aria-labelledby="period-dues-payments-heading"]');
   await balanceSection
     .getByRole("link", { name: "Open member profile for Anita Reports QA" })
     .click();

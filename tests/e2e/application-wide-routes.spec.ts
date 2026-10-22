@@ -592,24 +592,26 @@ test("captures every discovered application route at desktop, tablet, and mobile
             false,
             false,
           ]);
-          const collapsedPanelContentHeights = await page
-            .getByTestId("settings-sections")
-            .locator(":scope > section")
-            .evaluateAll((sections) =>
-              sections.flatMap((section) => {
-                const toggle = section.querySelector<HTMLButtonElement>(
-                  "button[aria-expanded='false']",
-                );
-                const contentId = toggle?.getAttribute("aria-controls");
-                const content = contentId ? document.getElementById(contentId) : null;
-                return content ? [content.getBoundingClientRect().height] : [];
-              }),
-            );
-          expect(collapsedPanelContentHeights).toHaveLength(8);
-          expect(
-            collapsedPanelContentHeights.every((height) => height <= 1),
-            "collapsed Settings panels should not leave hidden content taking up space",
-          ).toBe(true);
+          const getCollapsedPanelContentHeights = () =>
+            page
+              .getByTestId("settings-sections")
+              .locator(":scope > section")
+              .evaluateAll((sections) =>
+                sections.flatMap((section) => {
+                  const toggle = section.querySelector<HTMLButtonElement>(
+                    "button[aria-expanded='false']",
+                  );
+                  const contentId = toggle?.getAttribute("aria-controls");
+                  const content = contentId ? document.getElementById(contentId) : null;
+                  return content ? [content.getBoundingClientRect().height <= 1] : [];
+                }),
+              );
+          await expect
+            .poll(getCollapsedPanelContentHeights, {
+              message: "collapsed Settings panels should not leave hidden content taking up space",
+              timeout: 2_000,
+            })
+            .toEqual(Array(8).fill(true));
         }
         if (route.name === "expenses") {
           const revenueHint = page.getByText("Collected membership and product payments", {
@@ -941,10 +943,7 @@ test("captures every discovered application route at desktop, tablet, and mobile
         }
         if (viewport.name !== "desktop") {
           await page.screenshot({
-            path: resolve(
-              outputDir,
-              `${route.name}-${viewport.name}-${viewport.width}px-full.png`,
-            ),
+            path: resolve(outputDir, `${route.name}-${viewport.name}-${viewport.width}px-full.png`),
             fullPage: true,
           });
         }
@@ -2084,9 +2083,9 @@ test("synthetic Gym Profile uploads, displays and removes a private gym logo", a
     ),
   });
 
-  await expect.poll(() => workspace.state.settings.gymLogo).toMatch(
-    /^f2000000-0000-0000-0000-000000000001\/branding\/[\w-]+\.png$/,
-  );
+  await expect
+    .poll(() => workspace.state.settings.gymLogo)
+    .toMatch(/^f2000000-0000-0000-0000-000000000001\/branding\/[\w-]+\.png$/);
   await expect(page.getByRole("button", { name: "Change logo" })).toBeVisible();
   await expect(page.locator('aside button[data-tour="sidebar-brand"] img')).toBeVisible();
   await expect(page.locator("aside img[alt='Gym logo']")).toBeVisible();
