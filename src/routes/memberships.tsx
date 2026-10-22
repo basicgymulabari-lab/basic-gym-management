@@ -153,6 +153,54 @@ function MembershipsPage() {
     frozen: searchedGroups.frozen.length,
     unassigned: searchedGroups.unassigned.length,
   };
+  const summaryCards = [
+    {
+      label: "Active plans",
+      value: String(plans.filter((plan) => plan.active).length),
+      ariaLabel: "View active membership plans",
+      onClick: () => {
+        setPlansExpanded(true);
+        document.getElementById("membership-plans-section")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      },
+    },
+    {
+      label: "Expiring soon",
+      value: String(expiring.length),
+      ariaLabel: "View members with expiring memberships",
+      onClick: () => selectRosterTab("expiring"),
+    },
+    {
+      label: "Expired",
+      value: String(expired.length),
+      ariaLabel: "View members with expired memberships",
+      onClick: () => selectRosterTab("expired"),
+    },
+    {
+      label: "Frozen",
+      value: String(frozen.length),
+      ariaLabel: "View members with frozen memberships",
+      onClick: () => selectRosterTab("frozen"),
+    },
+    {
+      label: "No plan",
+      value: String(unassigned.length),
+      ariaLabel: "View members without a plan",
+      onClick: () => selectRosterTab("unassigned"),
+    },
+  ];
+
+  function selectRosterTab(tab: MembershipTab) {
+    setActiveTab(tab);
+    setPage(1);
+    setMemberSearch("");
+    document.getElementById("membership-roster")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
 
   return (
     <>
@@ -172,17 +220,14 @@ function MembershipsPage() {
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-5">
-        {[
-          ["Active plans", String(plans.filter((p) => p.active).length)],
-          ["Expiring soon", String(expiring.length)],
-          ["Expired", String(expired.length)],
-          ["Frozen", String(frozen.length)],
-          ["No plan", String(unassigned.length)],
-        ].map(([label, value]) => (
-          <div
+        {summaryCards.map(({ label, value, ariaLabel, onClick }) => (
+          <button
             key={label}
+            type="button"
+            aria-label={ariaLabel}
             data-testid={label === "No plan" ? "membership-unassigned-summary" : undefined}
-            className={`surface-panel min-w-0 rounded-2xl p-3 sm:p-4 ${
+            onClick={onClick}
+            className={`surface-panel w-full min-w-0 appearance-none rounded-2xl p-3 text-left transition-colors hover:border-gold/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold sm:p-4 ${
               label === "No plan" ? "col-span-2 xl:col-span-1" : ""
             }`}
           >
@@ -190,11 +235,14 @@ function MembershipsPage() {
               {label}
             </p>
             <p className="mt-1 font-display text-2xl text-gold sm:text-3xl">{value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <section className="surface-panel hairline-top relative mb-6 overflow-hidden rounded-2xl">
+      <section
+        id="membership-plans-section"
+        className="surface-panel hairline-top relative mb-6 scroll-mt-4 overflow-hidden rounded-2xl"
+      >
         <button
           type="button"
           aria-expanded={plansExpanded}
@@ -284,7 +332,7 @@ function MembershipsPage() {
           setPage(1);
         }}
       >
-        <TabsList className="mb-4 flex-wrap">
+        <TabsList id="membership-roster" className="mb-4 flex-wrap scroll-mt-4">
           <TabsTrigger value="all">All memberships</TabsTrigger>
           <TabsTrigger value="expiring">Renewal reminders ({expiring.length})</TabsTrigger>
           <TabsTrigger value="expired">Expired ({expired.length})</TabsTrigger>

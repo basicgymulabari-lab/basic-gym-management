@@ -314,6 +314,10 @@ test("recent sales link names to profiles while the eye keeps opening the invoic
   await memberSale.getByRole("button", { name: "Open member profile for Anita Receipt QA" }).click();
   await expect(page).toHaveURL(new RegExp(`/members/${member.id}(?:\\?|$)`));
   await expect(page.getByRole("heading", { name: member.name })).toBeVisible();
+  await expect(page.getByRole("link", { name: member.phone })).toHaveAttribute(
+    "href",
+    "tel:+9779800000003",
+  );
 
   await page.goto("/products");
   const refreshedMemberSale = page.getByTestId(`recent-sale-${memberSaleId}`);
@@ -788,8 +792,9 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
     const unpaidCard = page.locator("article").filter({ hasText: "QA Monthly Plan" });
     await expect(paidCard).toContainText("This term has payment history");
     await expect(paidCard.getByRole("button", { name: "Correct term" })).toHaveCount(0);
+    await expect(paidCard.getByRole("button", { name: "Delete term" })).toBeDisabled();
     await expect(unpaidCard.getByRole("button", { name: "Correct term" })).toBeVisible();
-    await expect(unpaidCard.getByRole("button", { name: "Remove unpaid term" })).toBeVisible();
+    await expect(unpaidCard.getByRole("button", { name: "Delete term" })).toBeEnabled();
     await page.evaluate(() => document.fonts.ready);
     const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(documentWidth).toBeLessThanOrEqual(viewport.width + 1);
@@ -966,9 +971,9 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
   }> = [];
   for (const viewport of viewports.filter((item) => item.name !== "desktop")) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    await correctedTermCard.getByRole("button", { name: "Remove unpaid term" }).click();
+    await correctedTermCard.getByRole("button", { name: "Delete term" }).click();
     const cancelDialog = page.getByRole("dialog");
-    await expect(cancelDialog.getByRole("heading", { name: "Remove unpaid term?" })).toBeVisible();
+    await expect(cancelDialog.getByRole("heading", { name: "Delete membership term?" })).toBeVisible();
     const dialogWidth = await cancelDialog.evaluate((element) => element.getBoundingClientRect().width);
     const dialogHeight = await cancelDialog.evaluate((element) => element.getBoundingClientRect().height);
     expect(dialogWidth).toBeLessThanOrEqual(viewport.width);
@@ -978,7 +983,7 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
     await expect(reasonInput).toBeInViewport();
     await reasonInput.fill("Duplicate term created by mistake");
     const cancelButton = cancelDialog.getByRole("button", { name: "Cancel" });
-    const removeButton = cancelDialog.getByRole("button", { name: "Remove unpaid term" });
+    const removeButton = cancelDialog.getByRole("button", { name: "Delete term" });
     await cancelButton.scrollIntoViewIfNeeded();
     await removeButton.scrollIntoViewIfNeeded();
     await expect(cancelButton).toBeInViewport();
@@ -1013,12 +1018,12 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
   }
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await correctedTermCard.getByRole("button", { name: "Remove unpaid term" }).click();
+  await correctedTermCard.getByRole("button", { name: "Delete term" }).click();
   const voidDialog = page.getByRole("dialog");
-  await expect(voidDialog.getByRole("heading", { name: "Remove unpaid term?" })).toBeVisible();
+  await expect(voidDialog.getByRole("heading", { name: "Delete membership term?" })).toBeVisible();
   await voidDialog.getByLabel("Reason").fill("Duplicate term created by mistake");
-  await voidDialog.getByRole("button", { name: "Remove unpaid term" }).click();
-  await expect(page.getByText("Unpaid membership removed; the action was recorded.")).toBeVisible();
+  await voidDialog.getByRole("button", { name: "Delete term" }).click();
+  await expect(page.getByText("Unpaid membership term deleted; the action was recorded.")).toBeVisible();
   await expect(page.locator("article").filter({ hasText: "QA Annual Plan" })).toHaveCount(0);
 
   await expect

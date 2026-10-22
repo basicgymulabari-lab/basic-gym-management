@@ -1969,6 +1969,42 @@ test("membership renewal lets an owner choose and records a custom start date", 
   await expect(page.getByRole("heading", { name: "Membership History" })).toBeVisible();
 });
 
+test("membership summary cards open their matching plans and roster filters", async ({ page }) => {
+  await installSyntheticSupabase(page);
+  await page.addInitScript((email) => {
+    window.localStorage.setItem(`ironvault.app-tour.v1.${email.toLowerCase()}`, "done");
+  }, owner.email);
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.goto("/login");
+  await page.getByRole("textbox", { name: "Email address" }).fill(owner.email);
+  await page.getByRole("textbox", { name: "Password" }).fill("synthetic-only-password");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
+
+  await page.goto("/memberships");
+  const plansSection = page.locator("#membership-plans-section");
+  await expect(plansSection.getByRole("button", { name: /Show .* plans/ })).toBeVisible();
+  await page.getByRole("button", { name: "View active membership plans" }).click();
+  await expect(plansSection).toBeInViewport();
+  await expect(plansSection.getByRole("button", { name: /Hide plans/ })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await expect(plansSection.getByText("Membership Plans", { exact: true })).toBeVisible();
+
+  const statusCards = [
+    { card: "View members with expiring memberships", tab: /Renewal reminders/ },
+    { card: "View members with expired memberships", tab: /Expired/ },
+    { card: "View members with frozen memberships", tab: /Frozen/ },
+    { card: "View members without a plan", tab: /No plan/ },
+  ];
+  for (const { card, tab } of statusCards) {
+    await page.getByRole("button", { name: card }).click();
+    await expect(page.locator("#membership-roster")).toBeInViewport();
+    await expect(page.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
+  }
+});
+
 test("product categories include S/K and support adding and renaming categories", async ({
   page,
 }) => {

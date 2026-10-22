@@ -246,7 +246,7 @@ function MemberProfile() {
             </div>
 
             <dl className="mt-6 space-y-3 text-sm">
-              <Info icon={Phone} value={member.phone} />
+              <Info icon={Phone} value={member.phone} href={dialablePhoneHref(member.phone)} />
               <Info icon={Mail} value={member.email || "—"} />
               {!walkIn && <Info icon={Cake} value={shortDate(member.dob.slice(0, 10))} />}
               <Info icon={MapPin} value={member.address || "—"} />
@@ -329,6 +329,10 @@ function MemberProfile() {
                     const paid = paidFor(state, h.id);
                     const bal = Math.max(0, membershipPayable(h) - paid);
                     const canCorrect = paid === 0 && !h.frozen;
+                    const changeBlockedReason =
+                      paid > 0
+                        ? "This term has payment history. To protect issued receipts, it can’t be edited or deleted here."
+                        : "Unfreeze this term before editing or deleting it.";
                     return (
                       <article
                         key={h.id}
@@ -375,8 +379,8 @@ function MemberProfile() {
                             <dd className="text-success">{money(paid, cur)}</dd>
                           </div>
                         </dl>
-                        {bal > 0 && (
-                          <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                          {bal > 0 && (
                             <Button
                               size="sm"
                               variant="secondary"
@@ -385,35 +389,17 @@ function MemberProfile() {
                             >
                               <Wallet className="mr-1.5 h-3.5 w-3.5" /> Collect due
                             </Button>
-                            {canCorrect && (
-                              <MembershipHistoryActions
-                                onEdit={() => setEditingMembership(h)}
-                                onVoid={() => setVoidingMembership(h)}
-                              />
-                            )}
-                          </div>
-                        )}
-                        {bal <= 0 && (
-                          <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                            {canCorrect ? (
-                              <MembershipHistoryActions
-                                onEdit={() => setEditingMembership(h)}
-                                onVoid={() => setVoidingMembership(h)}
-                              />
-                            ) : (
-                              <p className="text-xs text-muted-foreground">
-                                {h.frozen
-                                  ? "Unfreeze this term before correcting it."
-                                  : "This term has payment history. To protect issued receipts, it can’t be edited or removed here."}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        {bal > 0 && !canCorrect && (
+                          )}
+                          <MembershipHistoryActions
+                            canCorrect={canCorrect}
+                            deleteBlockedReason={canCorrect ? undefined : changeBlockedReason}
+                            onEdit={() => setEditingMembership(h)}
+                            onVoid={() => setVoidingMembership(h)}
+                          />
+                        </div>
+                        {!canCorrect && (
                           <p className="mt-3 text-xs text-muted-foreground">
-                            {h.frozen
-                              ? "Unfreeze this term before correcting it."
-                              : "This term has payment history. To protect issued receipts, it can’t be edited or removed here."}
+                            {changeBlockedReason}
                           </p>
                         )}
                       </article>
@@ -1031,11 +1017,39 @@ function CollectBalanceDialog({
   );
 }
 
-function Info({ icon: Icon, value }: { icon: typeof Mail; value: string }) {
+function dialablePhoneHref(phone: string) {
+  const digitsAndPlus = phone.trim().replace(/[^\d+]/g, "");
+  if (!/\d/.test(digitsAndPlus)) return undefined;
+  const dialTarget = digitsAndPlus.startsWith("+")
+    ? `+${digitsAndPlus.slice(1).replace(/\+/g, "")}`
+    : digitsAndPlus.replace(/\+/g, "");
+  return `tel:${dialTarget}`;
+}
+
+function Info({
+  icon: Icon,
+  value,
+  href,
+}: {
+  icon: typeof Mail;
+  value: string;
+  href?: string;
+}) {
   return (
     <div className="flex items-start gap-3">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
-      <span className="min-w-0 break-words text-muted-foreground">{value}</span>
+      <span className="min-w-0 break-words text-muted-foreground">
+        {href ? (
+          <a
+            href={href}
+            className="transition-colors hover:text-gold focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+          >
+            {value}
+          </a>
+        ) : (
+          value
+        )}
+      </span>
     </div>
   );
 }
@@ -1362,14 +1376,34 @@ function NoteDialog({
   );
 }
 
-function MembershipHistoryActions({ onEdit, onVoid }: { onEdit: () => void; onVoid: () => void }) {
+function MembershipHistoryActions({
+  canCorrect,
+  deleteBlockedReason,
+  onEdit,
+  onVoid,
+}: {
+  canCorrect: boolean;
+  deleteBlockedReason?: string;
+  onEdit: () => void;
+  onVoid: () => void;
+}) {
   return (
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="secondary" onClick={onEdit}>
-        <Pencil className="mr-1.5 h-3.5 w-3.5" /> Correct term
-      </Button>
-      <Button size="sm" variant="ghost" className="text-destructive" onClick={onVoid}>
-        <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove unpaid term
+      {canCorrect && (
+        <Button size="sm" variant="secondary" onClick={onEdit}>
+          <Pencil className="mr-1.5 h-3.5 w-3.5" /> Correct term
+        </Button>
+      )}
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-destructive"
+        onClick={onVoid}
+        disabled={!canCorrect}
+        title={deleteBlockedReason}
+        aria-label="Delete term"
+      >
+        <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete term
       </Button>
     </div>
   );
@@ -1569,13 +1603,14 @@ function VoidMembershipDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-display text-2xl tracking-wide">
-            Remove unpaid term?
+            Delete membership term?
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            “{planName}” has no linked payments. Removing it updates membership status/history; a
-            reason is retained in the activity history. This cannot remove or alter an invoice.
+            “{planName}” has no linked payments. Deleting it removes the term from this member’s
+            history; a reason is retained in activity history. This cannot remove or alter an
+            invoice, and the term cannot be restored from Trash.
           </p>
           <div className="space-y-2">
             <Label htmlFor="membership-void-reason">Reason</Label>
@@ -1605,11 +1640,11 @@ function VoidMembershipDialog({
                   );
                   return;
                 }
-                toast.success("Unpaid membership removed; the action was recorded.");
+                toast.success("Unpaid membership term deleted; the action was recorded.");
                 onClose();
               }}
             >
-              Remove unpaid term
+              Delete term
             </Button>
           </div>
         </div>

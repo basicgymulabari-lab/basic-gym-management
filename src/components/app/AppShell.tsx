@@ -566,8 +566,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2 justify-self-end">
               {(syncStatus.message ||
                 !syncStatus.online ||
-                syncStatus.offlineSession ||
-                syncStatus.pending) && (
+                syncStatus.offlineSession) && (
               <button
                 type="button"
                 onClick={async () => {
