@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { RotateCcw, Trash2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
@@ -7,7 +7,13 @@ import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,7 +40,11 @@ import {
 } from "@/lib/gym/store";
 import {
   daysUntil,
+  membershipPayable,
   money,
+  paidFor,
+  saleDue,
+  salePaid,
   shortDate,
   shortDateTime,
   trashedMembers,
@@ -43,7 +53,7 @@ import {
   trashedProducts,
   trashedExpenses,
 } from "@/lib/gym/selectors";
-import type { AttendanceRecord, Member } from "@/lib/gym/types";
+import type { AttendanceRecord, Expense, GymState, Member, Plan, Product } from "@/lib/gym/types";
 import {
   FREE_MEMBER_LIMIT,
   getSubscriptionSnapshot,
@@ -51,6 +61,13 @@ import {
   regularMemberCount,
 } from "@/lib/billing/client";
 import { deletePrivateAsset } from "@/lib/gym/storage";
+
+type TrashDetailsTarget =
+  | { kind: "member"; record: Member }
+  | { kind: "attendance"; record: AttendanceRecord }
+  | { kind: "plan"; record: Plan }
+  | { kind: "product"; record: Product }
+  | { kind: "expense"; record: Expense };
 
 export const Route = createFileRoute("/trash")({
   head: () => ({
@@ -79,6 +96,7 @@ function TrashPage() {
   const state = useGym();
   const [target, setTarget] = useState<Member | null>(null);
   const [attendanceTarget, setAttendanceTarget] = useState<AttendanceRecord | null>(null);
+  const [detailsTarget, setDetailsTarget] = useState<TrashDetailsTarget | null>(null);
 
   const items = useMemo(() => (state ? trashedMembers(state) : []), [state]);
   const attendance = useMemo(() => (state ? trashedAttendance(state) : []), [state]);
@@ -91,14 +109,15 @@ function TrashPage() {
     <>
       <PageHeader
         title="Trash"
-        subtitle="Review deleted records by type. Restore an item or permanently remove it."
+        subtitle="Select a deleted item to review its saved details. Restore it or permanently remove it."
       />
 
       <div className="mb-6 flex items-start gap-3 rounded-2xl border border-warning/40 bg-warning/10 p-4">
         <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
         <p className="text-sm text-muted-foreground">
           Restore returns an item to its original section. Permanent deletion cannot be undone;
-          deleting a member also erases its linked records and requires typing <strong>DELETE</strong>.
+          deleting a member also erases its linked records and requires typing{" "}
+          <strong>DELETE</strong>.
         </p>
       </div>
 
@@ -123,7 +142,10 @@ function TrashPage() {
                   >
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="break-words font-medium">{m.name}</p>
+                        <TrashRecordName
+                          name={m.name}
+                          onClick={() => setDetailsTarget({ kind: "member", record: m })}
+                        />
                         <p className="break-all text-xs text-muted-foreground">{m.phone}</p>
                       </div>
                       <span
@@ -215,7 +237,10 @@ function TrashPage() {
                     return (
                       <tr key={m.id} className="border-b border-border/50 hover:bg-secondary/40">
                         <td className="py-3">
-                          <p className="font-medium">{m.name}</p>
+                          <TrashRecordName
+                            name={m.name}
+                            onClick={() => setDetailsTarget({ kind: "member", record: m })}
+                          />
                           <p className="text-xs text-muted-foreground">{m.phone}</p>
                         </td>
                         <td className="py-3 text-muted-foreground">
@@ -312,8 +337,13 @@ function TrashPage() {
                 >
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="break-words font-medium">{record.memberName}</p>
-                      <p className="break-all text-xs text-muted-foreground">{record.memberPhone}</p>
+                      <TrashRecordName
+                        name={record.memberName}
+                        onClick={() => setDetailsTarget({ kind: "attendance", record })}
+                      />
+                      <p className="break-all text-xs text-muted-foreground">
+                        {record.memberPhone}
+                      </p>
                     </div>
                     <span className="shrink-0 rounded-full border border-gold/30 bg-gold/10 px-2.5 py-1 text-xs text-gold">
                       {record.shift
@@ -380,7 +410,10 @@ function TrashPage() {
                       className="border-b border-border/50 hover:bg-secondary/40"
                     >
                       <td className="py-3">
-                        <p className="font-medium">{record.memberName}</p>
+                        <TrashRecordName
+                          name={record.memberName}
+                          onClick={() => setDetailsTarget({ kind: "attendance", record })}
+                        />
                         <p className="text-xs text-muted-foreground">{record.memberPhone}</p>
                       </td>
                       <td className="py-3 text-muted-foreground">
@@ -448,7 +481,10 @@ function TrashPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium">{p.name}</p>
+                        <TrashRecordName
+                          name={p.name}
+                          onClick={() => setDetailsTarget({ kind: "plan", record: p })}
+                        />
                         <p className="text-xs text-muted-foreground">
                           {p.durationDays} days · {money(p.price, state.settings.currency)}
                         </p>
@@ -513,7 +549,10 @@ function TrashPage() {
                     return (
                       <tr key={p.id} className="border-b border-border/50 hover:bg-secondary/40">
                         <td className="py-3">
-                          <p className="font-medium">{p.name}</p>
+                          <TrashRecordName
+                            name={p.name}
+                            onClick={() => setDetailsTarget({ kind: "plan", record: p })}
+                          />
                           <p className="text-xs text-muted-foreground">{p.durationDays} days</p>
                         </td>
                         <td className="py-3 text-muted-foreground">
@@ -591,7 +630,10 @@ function TrashPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium">{p.name}</p>
+                        <TrashRecordName
+                          name={p.name}
+                          onClick={() => setDetailsTarget({ kind: "product", record: p })}
+                        />
                         <p className="text-xs text-muted-foreground">
                           {p.category} · {money(p.price, state.settings.currency)}
                         </p>
@@ -653,7 +695,10 @@ function TrashPage() {
                     return (
                       <tr key={p.id} className="border-b border-border/50 hover:bg-secondary/40">
                         <td className="py-3">
-                          <p className="font-medium">{p.name}</p>
+                          <TrashRecordName
+                            name={p.name}
+                            onClick={() => setDetailsTarget({ kind: "product", record: p })}
+                          />
                           <p className="text-xs text-muted-foreground">{p.category}</p>
                         </td>
                         <td className="py-3 text-muted-foreground">
@@ -726,7 +771,10 @@ function TrashPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="break-words font-medium">{e.title}</p>
+                        <TrashRecordName
+                          name={e.title}
+                          onClick={() => setDetailsTarget({ kind: "expense", record: e })}
+                        />
                         <p className="break-words text-xs text-muted-foreground">
                           {e.expenseNo} · {e.category}
                         </p>
@@ -811,7 +859,10 @@ function TrashPage() {
                     return (
                       <tr key={e.id} className="border-b border-border/50 hover:bg-secondary/40">
                         <td className="py-3">
-                          <p className="font-medium">{e.title}</p>
+                          <TrashRecordName
+                            name={e.title}
+                            onClick={() => setDetailsTarget({ kind: "expense", record: e })}
+                          />
                           <p className="text-xs text-muted-foreground">
                             {e.expenseNo} · {e.category}
                           </p>
@@ -889,11 +940,425 @@ function TrashPage() {
       </Panel>
 
       <ConfirmDialog member={target} onClose={() => setTarget(null)} />
-      <AttendancePurgeDialog
-        record={attendanceTarget}
-        onClose={() => setAttendanceTarget(null)}
+      <AttendancePurgeDialog record={attendanceTarget} onClose={() => setAttendanceTarget(null)} />
+      <TrashRecordDetailsDialog
+        target={detailsTarget}
+        state={state}
+        onClose={() => setDetailsTarget(null)}
       />
     </>
+  );
+}
+
+function TrashRecordName({ name, onClick }: { name: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="block max-w-full cursor-pointer break-words rounded-sm text-left font-medium text-foreground transition-colors hover:text-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      aria-label={`View deleted-record details for ${name}`}
+      aria-haspopup="dialog"
+      title="View saved details"
+      onClick={onClick}
+    >
+      {name}
+    </button>
+  );
+}
+
+function DetailField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-1 break-words text-sm">{children ?? "—"}</dd>
+    </div>
+  );
+}
+
+function DetailSection({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count?: number;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3 rounded-xl border border-border/70 bg-secondary/10 p-4">
+      <h3 className="font-display text-sm uppercase tracking-wide">
+        {title}
+        {count !== undefined && (
+          <span className="ml-2 font-sans text-xs font-normal normal-case tracking-normal text-muted-foreground">
+            {count}
+          </span>
+        )}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function EmptyDetails({ children }: { children: ReactNode }) {
+  return <p className="text-sm text-muted-foreground">{children}</p>;
+}
+
+function TrashRecordDetailsDialog({
+  target,
+  state,
+  onClose,
+}: {
+  target: TrashDetailsTarget | null;
+  state: GymState;
+  onClose: () => void;
+}) {
+  if (!target) return null;
+
+  const title =
+    target.kind === "member"
+      ? target.record.name
+      : target.kind === "attendance"
+        ? `${target.record.memberName} · Attendance`
+        : target.kind === "plan"
+          ? target.record.name
+          : target.kind === "product"
+            ? target.record.name
+            : target.record.title;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader className="pr-8">
+          <DialogTitle className="font-display text-xl tracking-wide">{title}</DialogTitle>
+          <DialogDescription>
+            Saved record details. Reviewing this information does not restore or change the item.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {target.kind === "member" && <MemberTrashDetails member={target.record} state={state} />}
+          {target.kind === "attendance" && (
+            <AttendanceTrashDetails record={target.record} state={state} />
+          )}
+          {target.kind === "plan" && <PlanTrashDetails plan={target.record} state={state} />}
+          {target.kind === "product" && (
+            <ProductTrashDetails product={target.record} state={state} />
+          )}
+          {target.kind === "expense" && (
+            <ExpenseTrashDetails expense={target.record} state={state} />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MemberTrashDetails({ member, state }: { member: Member; state: GymState }) {
+  const memberships = state.memberships
+    .filter((item) => item.memberId === member.id)
+    .sort((left, right) => right.startDate.localeCompare(left.startDate));
+  const sales = state.sales
+    .filter((sale) => sale.memberId === member.id)
+    .sort((left, right) => right.date.localeCompare(left.date));
+  const membershipIds = new Set(memberships.map((item) => item.id));
+  const saleIds = new Set(sales.map((item) => item.id));
+  const payments = state.payments
+    .filter(
+      (payment) =>
+        payment.memberId === member.id ||
+        membershipIds.has(payment.membershipId ?? "") ||
+        saleIds.has(payment.saleId ?? ""),
+    )
+    .sort((left, right) => right.date.localeCompare(left.date));
+  const attendance = (state.attendance ?? [])
+    .filter((record) => record.memberId === member.id)
+    .sort((left, right) => right.checkedInAt.localeCompare(left.checkedInAt));
+
+  return (
+    <>
+      <DetailSection title="Member information">
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <DetailField label="Phone">{member.phone}</DetailField>
+          <DetailField label="Email">{member.email}</DetailField>
+          <DetailField label="Joined">{shortDate(member.joinDate)}</DetailField>
+          <DetailField label="Date of birth">{shortDate(member.dob)}</DetailField>
+          <DetailField label="Gender">{member.gender}</DetailField>
+          <DetailField label="Emergency contact">{member.emergencyContact}</DetailField>
+          <DetailField label="Deleted on">
+            {member.deletedAt ? shortDateTime(member.deletedAt) : "—"}
+          </DetailField>
+          <DetailField label="Deleted by">{member.deletedBy || "Admin"}</DetailField>
+          <DetailField label="Address">{member.address}</DetailField>
+        </dl>
+      </DetailSection>
+
+      <DetailSection title="Membership history" count={memberships.length}>
+        {memberships.length === 0 ? (
+          <EmptyDetails>No membership terms are linked to this member.</EmptyDetails>
+        ) : (
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {memberships.map((membership) => {
+              const plan = state.plans.find((item) => item.id === membership.planId);
+              const payable = membershipPayable(membership);
+              const paid = paidFor(state, membership.id);
+              return (
+                <div key={membership.id} className="rounded-lg border border-border/60 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="font-medium">{plan?.name ?? "Membership plan unavailable"}</p>
+                    <p className="text-sm">{money(payable, state.settings.currency)}</p>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {shortDate(membership.startDate)} – {shortDate(membership.endDate)}
+                    {membership.frozen ? " · Frozen" : ""}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Paid {money(paid, state.settings.currency)} · Due{" "}
+                    {money(Math.max(0, payable - paid), state.settings.currency)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </DetailSection>
+
+      <DetailSection title="Product purchases" count={sales.length}>
+        {sales.length === 0 ? (
+          <EmptyDetails>No product purchases are linked to this member.</EmptyDetails>
+        ) : (
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {sales.map((sale) => (
+              <div key={sale.id} className="rounded-lg border border-border/60 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="font-medium">{sale.productName}</p>
+                  <p className="text-sm">{money(sale.total, state.settings.currency)}</p>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {sale.invoiceNo} · Qty {sale.qty} · {shortDateTime(sale.date)}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Paid {money(salePaid(state, sale), state.settings.currency)} · Due{" "}
+                  {money(saleDue(state, sale), state.settings.currency)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </DetailSection>
+
+      <DetailSection title="Payments" count={payments.length}>
+        {payments.length === 0 ? (
+          <EmptyDetails>No payments are linked to this member.</EmptyDetails>
+        ) : (
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {payments.map((payment) => (
+              <div
+                key={payment.id}
+                className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-border/60 p-3"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {payment.invoiceNo} · {payment.kind}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {shortDateTime(payment.date)} · {payment.method}
+                    {payment.note ? ` · ${payment.note}` : ""}
+                  </p>
+                </div>
+                <p className="text-sm">{money(payment.amount, state.settings.currency)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </DetailSection>
+
+      <DetailSection title="Attendance history" count={attendance.length}>
+        {attendance.length === 0 ? (
+          <EmptyDetails>No attendance check-ins are linked to this member.</EmptyDetails>
+        ) : (
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {attendance.map((record) => (
+              <div
+                key={record.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 p-3"
+              >
+                <p className="text-sm">
+                  {shortDateTime(record.checkedInAt)} · {record.shift ?? "Shift not assigned"}
+                </p>
+                {record.deletedAt && (
+                  <span className="text-xs text-muted-foreground">In Trash</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </DetailSection>
+
+      {member.notes.length > 0 && (
+        <DetailSection title="Progress notes" count={member.notes.length}>
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {member.notes
+              .slice()
+              .sort((left, right) => right.date.localeCompare(left.date))
+              .map((note) => (
+                <div key={note.id} className="rounded-lg border border-border/60 p-3">
+                  <p className="font-medium">{note.title}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                    {note.note}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">{shortDate(note.date)}</p>
+                </div>
+              ))}
+          </div>
+        </DetailSection>
+      )}
+    </>
+  );
+}
+
+function AttendanceTrashDetails({ record, state }: { record: AttendanceRecord; state: GymState }) {
+  const member = state.members.find((item) => item.id === record.memberId);
+  return (
+    <DetailSection title="Check-in details">
+      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <DetailField label="Member">{record.memberName}</DetailField>
+        <DetailField label="Phone">{record.memberPhone}</DetailField>
+        <DetailField label="Checked in">{shortDateTime(record.checkedInAt)}</DetailField>
+        <DetailField label="Shift">{record.shift ?? "Not assigned"}</DetailField>
+        <DetailField label="Deleted on">
+          {record.deletedAt ? shortDateTime(record.deletedAt) : "—"}
+        </DetailField>
+        <DetailField label="Deleted by">{record.deletedBy || "Admin"}</DetailField>
+        <DetailField label="Member profile">
+          {member ? (member.deletedAt ? "Also in Trash" : "Still active") : "No linked profile"}
+        </DetailField>
+      </dl>
+    </DetailSection>
+  );
+}
+
+function PlanTrashDetails({ plan, state }: { plan: Plan; state: GymState }) {
+  const memberships = state.memberships
+    .filter((membership) => membership.planId === plan.id)
+    .sort((left, right) => right.startDate.localeCompare(left.startDate));
+  return (
+    <>
+      <DetailSection title="Plan information">
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <DetailField label="Price">{money(plan.price, state.settings.currency)}</DetailField>
+          <DetailField label="Joining fee">
+            {money(plan.joiningFee ?? 0, state.settings.currency)}
+          </DetailField>
+          <DetailField label="Duration">{plan.durationDays} days</DetailField>
+          <DetailField label="Status">{plan.active ? "Active" : "Inactive"}</DetailField>
+          <DetailField label="Deleted on">
+            {plan.deletedAt ? shortDateTime(plan.deletedAt) : "—"}
+          </DetailField>
+          <DetailField label="Description">{plan.description}</DetailField>
+        </dl>
+      </DetailSection>
+      <DetailSection title="Membership records using this plan" count={memberships.length}>
+        {memberships.length === 0 ? (
+          <EmptyDetails>No membership history references this plan.</EmptyDetails>
+        ) : (
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {memberships.map((membership) => {
+              const member = state.members.find((item) => item.id === membership.memberId);
+              return (
+                <div
+                  key={membership.id}
+                  className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-border/60 p-3"
+                >
+                  <div>
+                    <p className="font-medium">{member?.name ?? "Member record unavailable"}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {shortDate(membership.startDate)} – {shortDate(membership.endDate)}
+                    </p>
+                  </div>
+                  <p className="text-sm">
+                    {money(membershipPayable(membership), state.settings.currency)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </DetailSection>
+    </>
+  );
+}
+
+function ProductTrashDetails({ product, state }: { product: Product; state: GymState }) {
+  const sales = state.sales
+    .filter((sale) => sale.productId === product.id)
+    .sort((left, right) => right.date.localeCompare(left.date));
+  return (
+    <>
+      <DetailSection title="Product information">
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <DetailField label="Category">{product.category}</DetailField>
+          <DetailField label="SKU">{product.sku}</DetailField>
+          <DetailField label="Selling price">
+            {money(product.price, state.settings.currency)}
+          </DetailField>
+          <DetailField label="Unit cost">
+            {money(product.cost, state.settings.currency)}
+          </DetailField>
+          <DetailField label="Stock at deletion">{product.stock}</DetailField>
+          <DetailField label="Low-stock threshold">{product.lowStockAt}</DetailField>
+          <DetailField label="Added on">{shortDateTime(product.createdAt)}</DetailField>
+          <DetailField label="Deleted on">
+            {product.deletedAt ? shortDateTime(product.deletedAt) : "—"}
+          </DetailField>
+        </dl>
+      </DetailSection>
+      <DetailSection title="Recorded sales" count={sales.length}>
+        {sales.length === 0 ? (
+          <EmptyDetails>No sales records reference this product.</EmptyDetails>
+        ) : (
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {sales.map((sale) => (
+              <div
+                key={sale.id}
+                className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-border/60 p-3"
+              >
+                <div>
+                  <p className="font-medium">{sale.buyer || "Walk-in customer"}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {sale.invoiceNo} · Qty {sale.qty} · {shortDateTime(sale.date)}
+                  </p>
+                </div>
+                <p className="text-sm">{money(sale.total, state.settings.currency)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </DetailSection>
+    </>
+  );
+}
+
+function ExpenseTrashDetails({ expense, state }: { expense: Expense; state: GymState }) {
+  const attachmentSize = expense.attachment?.size
+    ? `${(expense.attachment.size / 1024).toFixed(1)} KB`
+    : "—";
+  return (
+    <DetailSection title="Expense information">
+      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <DetailField label="Expense number">{expense.expenseNo}</DetailField>
+        <DetailField label="Category">{expense.category}</DetailField>
+        <DetailField label="Amount">{money(expense.amount, state.settings.currency)}</DetailField>
+        <DetailField label="Expense date">{shortDate(expense.date)}</DetailField>
+        <DetailField label="Payment method">{expense.method}</DetailField>
+        <DetailField label="Deleted on">
+          {expense.deletedAt ? shortDateTime(expense.deletedAt) : "—"}
+        </DetailField>
+        <DetailField label="Notes">{expense.notes}</DetailField>
+        <DetailField label="Attachment">
+          {expense.attachment
+            ? `${expense.attachment.name} · ${expense.attachment.type || "file"} · ${attachmentSize}`
+            : "None"}
+        </DetailField>
+      </dl>
+    </DetailSection>
   );
 }
 

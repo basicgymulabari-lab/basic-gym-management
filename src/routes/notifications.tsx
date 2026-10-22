@@ -96,8 +96,8 @@ function buildReminderQueue(state: GymState): Reminder[] {
         name: member.name,
         phone: member.phone,
         email: member.email || undefined,
-        detail: `${money(balance, state.settings.currency)} outstanding`,
-        message: `Hi ${member.name}, this is a payment reminder from ${state.settings.gymName}. Your outstanding balance is ${money(balance, state.settings.currency)}. Please contact us if you have already paid.`,
+        detail: `${money(balance, state.settings.currency)} due`,
+        message: `Hi ${member.name}, this is a payment reminder from ${state.settings.gymName}. Our records show an amount due of ${money(balance, state.settings.currency)}. Please contact us if you have already paid.`,
       });
     }
   });
@@ -221,7 +221,7 @@ function NotificationsPage() {
 
       <Panel
         title="Reminder Center"
-        description="Prepared automatically from live memberships, balances and inquiry follow-ups"
+        description="Prepared automatically from live memberships, dues and inquiry follow-ups"
         className="mb-6"
         actions={
           <span className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-medium text-gold">

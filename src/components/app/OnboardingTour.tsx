@@ -1,8 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, GraduationCap, Sparkles, Trophy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-export const APP_TOUR_REQUEST_KEY = "ironvault.app-tour.requested";
+export { APP_TOUR_REQUEST_KEY } from "@/lib/app-tour";
 
 type TourStep = {
   title: string;
@@ -37,7 +36,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     title: "Payments",
     description:
-      "Record collected payments, review outstanding balances and follow up on pending dues from memberships and product sales.",
+      "Record collected payments, review outstanding dues and follow up on pending payments from memberships and product sales.",
     target: '[data-tour="nav-payments"]',
   },
   {

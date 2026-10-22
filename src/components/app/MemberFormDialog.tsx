@@ -855,7 +855,7 @@ export function MemberFormDialog({
                       </span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Remaining balance</span>
+                      <span>Due</span>
                       <span className="text-foreground">
                         {cur}
                         {remainingBalance.toLocaleString("en-IN")}

@@ -48,7 +48,7 @@ import type {
 import { PHONE_COUNTRIES } from "@/lib/gym/phone";
 import { defaultTimeZoneForCountry, TIME_ZONE_OPTIONS } from "@/lib/gym/time";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { APP_TOUR_REQUEST_KEY } from "@/components/app/OnboardingTour";
+import { APP_TOUR_REQUEST_KEY } from "@/lib/app-tour";
 import {
   FREE_MEMBER_LIMIT,
   isLocalBillingMode,

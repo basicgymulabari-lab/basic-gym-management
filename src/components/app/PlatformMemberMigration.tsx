@@ -982,7 +982,7 @@ export function PlatformMemberMigration() {
           {transferSummary.membershipCount > 0 && <div className="rounded-lg border border-border p-3 text-sm">
             <p className="font-medium">Membership payment records</p>
             <label className="mt-2 flex items-start gap-2"><input type="checkbox" checked={movePayments} onChange={(event) => setMovePayments(event.target.checked)} className="mt-1" /><span>Move all payment records linked to the transferred membership history, assigning new destination invoice numbers and retaining the original invoice number in each note. The original payment rows leave the source gym.</span></label>
-            {!movePayments && <p className="mt-2 text-warning">The source keeps its original memberships and payment history. Membership terms are copied to the destination without payments, so their balances may show as due there.</p>}
+            {!movePayments && <p className="mt-2 text-warning">The source keeps its original memberships and payment history. Membership terms are copied to the destination without payments, so amounts owed may show as due there.</p>}
           </div>}
           {duplicateOverrides.size > 0 && <p className="text-sm text-warning">You explicitly approved {duplicateOverrides.size} possible duplicate(s) for this operation.</p>}
           <AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy || transferConfirmName !== context?.destination.gym_name || transferSummary.missingPreviewCount > 0} onClick={(event) => { event.preventDefault(); void runTransfer(); }}>

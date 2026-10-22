@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildSeed } from "../../src/lib/gym/seed";
 import { formatShortDate } from "../../src/lib/gym/calendar";
+import { dueFor } from "../../src/lib/gym/selectors";
 
 const owner = {
   id: "f1000000-0000-0000-0000-000000000001",
@@ -455,7 +456,7 @@ test("captures every discovered application route at desktop, tablet, and mobile
             "Sales Statistics",
             "Recent Activities",
             "Financial Overview",
-            "Balance Aging",
+            "Due Aging",
             "Member Lifecycle",
             "Today’s Summary",
             "More Metrics",
@@ -1204,10 +1205,21 @@ test("member roster shows last visits and filters members with no visit in 30 da
 test("member profiles no longer expose body measurements", async ({ page }) => {
   await installSyntheticSupabase(page);
   const workspace = stateByPage.get(page);
-  const member = workspace?.state.members.find(
-    (candidate) => candidate.type !== "walk_in" && !candidate.deletedAt,
+  if (!workspace) throw new Error("Synthetic workspace is missing.");
+  const member = workspace.state.members.find(
+    (candidate) =>
+      candidate.type !== "walk_in" &&
+      !candidate.deletedAt &&
+      dueFor(workspace.state, candidate.id) > 0 &&
+      workspace.state.sales.some((sale) => sale.memberId === candidate.id),
   );
   if (!member) throw new Error("Synthetic workspace is missing a registered member.");
+  const sale = workspace.state.sales.find((item) => item.memberId === member.id);
+  if (!sale) throw new Error("Synthetic workspace is missing a member product sale.");
+  const salePayment = workspace.state.payments.find((item) => item.saleId === sale.id);
+  if (!salePayment) throw new Error("Synthetic workspace is missing its product payment.");
+  sale.paid = Math.max(0, sale.total - 10);
+  salePayment.amount = sale.paid;
 
   await page.addInitScript((email) => {
     window.localStorage.setItem(`ironvault.app-tour.v1.${email.toLowerCase()}`, "done");
@@ -1223,6 +1235,25 @@ test("member profiles no longer expose body measurements", async ({ page }) => {
   await expect(page.getByRole("tab", { name: "Body Measurements" })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Progress Notes" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Membership History" })).toBeVisible();
+  await expect(page.getByText(/^Due /).first()).toBeVisible();
+  await expect(page.getByText(/Balance/)).toHaveCount(0);
+
+  await page.goto(`/members/${member.id}?tab=purchases`);
+  await expect(page.getByRole("heading", { name: "Product Purchases" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Due", exact: true })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Balance", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Collect due" })).toBeVisible();
+
+  await page.goto("/payments");
+  await page.getByRole("button", { name: "Pending payments", exact: true }).click();
+  await expect(page.getByRole("columnheader", { name: "Due", exact: true })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Balance", exact: true })).toHaveCount(0);
+
+  await page.goto("/reports");
+  await expect(page.getByRole("heading", { name: "Membership dues collected" })).toBeVisible();
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Due Aging" })).toBeVisible();
   expect(member.measurements).toBeDefined();
 });
 
@@ -1439,6 +1470,7 @@ function linkedMemberRecordIds(state: typeof sampleState, memberId: string) {
 test("synthetic Trash lifecycle preserves restore, cancel, and permanent-delete safeguards", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(60_000);
   const outputDir = resolve(
     process.cwd(),
     "qa/ironvault/application-wide",
@@ -1469,8 +1501,48 @@ test("synthetic Trash lifecycle preserves restore, cancel, and permanent-delete 
       shift: "morning",
       date: "2026-10-15",
       checkedInAt: deletedAt,
+      deletedAt,
+      deletedBy: "Synthetic QA fixture",
     });
   }
+
+  const [planTarget] = workspace.state.plans;
+  const [productTarget] = workspace.state.products;
+  const [expenseTarget] = workspace.state.expenses;
+  expect(planTarget).toBeDefined();
+  expect(productTarget).toBeDefined();
+  expect(expenseTarget).toBeDefined();
+  if (!planTarget || !productTarget || !expenseTarget) {
+    throw new Error("Trash detail coverage needs a plan, product, and expense.");
+  }
+  planTarget.deletedAt = deletedAt;
+  productTarget.deletedAt = deletedAt;
+  expenseTarget.deletedAt = deletedAt;
+  workspace.state.sales.push({
+    id: "qa-sale-for-deleted-member",
+    invoiceNo: "QA-INV-TRASH-001",
+    productId: productTarget.id,
+    productName: productTarget.name,
+    qty: 2,
+    unitPrice: productTarget.price,
+    unitCost: productTarget.cost,
+    total: productTarget.price * 2,
+    paid: productTarget.price,
+    buyer: restoreTarget.name,
+    memberId: restoreTarget.id,
+    date: deletedAt,
+  });
+  workspace.state.payments.push({
+    id: "qa-payment-for-deleted-member-sale",
+    invoiceNo: "QA-PAY-TRASH-001",
+    memberId: restoreTarget.id,
+    saleId: "qa-sale-for-deleted-member",
+    kind: "product",
+    amount: productTarget.price,
+    method: "cash",
+    date: deletedAt,
+    note: "Synthetic Trash detail payment",
+  });
 
   const restoreRecordsBefore = linkedMemberRecordIds(workspace.state, restoreTarget.id);
   const deleteRecordsBefore = linkedMemberRecordIds(workspace.state, deleteTarget.id);
@@ -1495,9 +1567,61 @@ test("synthetic Trash lifecycle preserves restore, cancel, and permanent-delete 
 
   await page.goto("/trash");
   await expect(page.getByRole("heading", { name: "Deleted Members", exact: true })).toBeVisible();
-  const restoreCard = page.locator("article").filter({ hasText: restoreTarget.name });
+  const restoreCard = page
+    .locator("article")
+    .filter({ hasText: restoreTarget.name })
+    .filter({ hasText: /days left/ });
   await expect(restoreCard).toBeVisible();
   await page.screenshot({ path: resolve(outputDir, "mobile-populated-trash.png"), fullPage: true });
+
+  await restoreCard
+    .getByRole("button", { name: `View deleted-record details for ${restoreTarget.name}` })
+    .click();
+  let detailsDialog = page.getByRole("dialog", { name: restoreTarget.name });
+  await expect(detailsDialog.getByRole("heading", { name: "Membership history" })).toBeVisible();
+  await expect(detailsDialog.getByRole("heading", { name: "Product purchases" })).toBeVisible();
+  await expect(detailsDialog.getByRole("heading", { name: "Payments" })).toBeVisible();
+  await expect(detailsDialog.getByText("QA-INV-TRASH-001")).toBeVisible();
+  await expect(detailsDialog.getByText(productTarget.name).first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detailsDialog).toBeHidden();
+
+  const attendanceDetailsButton = page
+    .getByRole("button", { name: `View deleted-record details for ${restoreTarget.name}` })
+    .last();
+  await attendanceDetailsButton.click();
+  detailsDialog = page.getByRole("dialog", { name: `${restoreTarget.name} · Attendance` });
+  await expect(detailsDialog.getByText("morning", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detailsDialog).toBeHidden();
+
+  await page
+    .getByRole("button", { name: `View deleted-record details for ${planTarget.name}` })
+    .click();
+  detailsDialog = page.getByRole("dialog", { name: planTarget.name });
+  await expect(
+    detailsDialog.getByRole("heading", { name: "Membership records using this plan" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detailsDialog).toBeHidden();
+
+  await page
+    .getByRole("button", { name: `View deleted-record details for ${productTarget.name}` })
+    .click();
+  detailsDialog = page.getByRole("dialog", { name: productTarget.name });
+  await expect(detailsDialog.getByRole("heading", { name: "Recorded sales" })).toBeVisible();
+  await expect(detailsDialog.getByText("QA-INV-TRASH-001")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detailsDialog).toBeHidden();
+
+  await page
+    .getByRole("button", { name: `View deleted-record details for ${expenseTarget.title}` })
+    .click();
+  detailsDialog = page.getByRole("dialog", { name: expenseTarget.title });
+  await expect(detailsDialog.getByRole("heading", { name: "Expense information" })).toBeVisible();
+  await expect(detailsDialog.getByText(expenseTarget.expenseNo)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detailsDialog).toBeHidden();
 
   const revisionBeforeRestore = workspace.revision;
   await restoreCard.getByRole("button", { name: /Restore/ }).click();
@@ -1506,10 +1630,14 @@ test("synthetic Trash lifecycle preserves restore, cancel, and permanent-delete 
     .toBeNull();
   await expect.poll(() => workspace.revision).toBeGreaterThan(revisionBeforeRestore);
   expect(linkedMemberRecordIds(workspace.state, restoreTarget.id)).toEqual(restoreRecordsBefore);
-  await expect(page.getByText(restoreTarget.name, { exact: true })).toHaveCount(0);
+  await expect(restoreCard).toHaveCount(0);
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  const deleteRow = page.locator("table tbody tr").filter({ hasText: deleteTarget.name });
+  const deleteRow = page
+    .locator("table")
+    .first()
+    .locator("tbody tr")
+    .filter({ hasText: deleteTarget.name });
   await expect(deleteRow).toBeVisible();
   const revisionBeforeCancel = workspace.revision;
   await deleteRow.getByRole("button", { name: /Delete forever/ }).click();

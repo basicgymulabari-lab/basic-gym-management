@@ -2510,7 +2510,7 @@ export function addSalePayment(
       amount,
       method,
       date: iso(new Date()),
-      note: note?.trim() || `${sale.productName} — balance payment`,
+      note: note?.trim() || `${sale.productName} — due payment`,
     };
     paymentId = payment.id;
     let next: GymState = { ...st, payments: [payment, ...st.payments] };

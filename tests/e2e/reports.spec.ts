@@ -393,7 +393,7 @@ test("reports period selectors, custom range, print, CSV, and responsive states"
     page.getByRole("list", { name: "Top selling products ranked by sales revenue" }),
   ).toBeVisible();
   await expect(mobileDetails).toContainText("Whey Protein");
-  await expect(mobileDetails).toContainText("Membership balances collected");
+  await expect(mobileDetails).toContainText("Membership dues collected");
   const mobileDocumentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   const mobileViewportWidth = await page.evaluate(() => document.documentElement.clientWidth);
   const mobileOverflowCandidates = await page.evaluate(() =>
@@ -427,7 +427,7 @@ test("reports period selectors, custom range, print, CSV, and responsive states"
   expect(dailyCsvPath).not.toBeNull();
   const dailyCsv = await readFile(dailyCsvPath!, "utf8");
   expect(dailyCsv).toContain("Today's collection details");
-  expect(dailyCsv).toContain("Members who paid membership balance,1");
+  expect(dailyCsv).toContain("Members who paid membership dues,1");
   expect(dailyCsv).toContain("Whey Protein (2 units)");
 
   await page.getByRole("button", { name: "Custom", exact: true }).click();
@@ -584,7 +584,7 @@ test("collection balance recipients and product buyers open their member profile
   await expect(details).toBeVisible();
 
   const balanceSection = details.locator(
-    'section[aria-labelledby="period-balance-payments-heading"]',
+    'section[aria-labelledby="period-dues-payments-heading"]',
   );
   await balanceSection
     .getByRole("link", { name: "Open member profile for Anita Reports QA" })
@@ -716,7 +716,7 @@ test("legacy buyer and payer names without member IDs open the unique matching p
   expect(errors).toEqual([]);
 });
 
-test("daily collection time window filters receipts, balance payments and product sales", async ({
+test("daily collection time window filters receipts, due payments and product sales", async ({
   page,
 }) => {
   const { data, errors } = await installMockBackend(page);
@@ -787,7 +787,7 @@ test("daily collection time window filters receipts, balance payments and produc
   await expect(products).toContainText("Morning Snack");
   await expect(products).toContainText(/10:45\s?AM/i);
   await expect(products).not.toContainText("Whey Protein");
-  const balances = details.locator('section[aria-labelledby="period-balance-payments-heading"]');
+  const balances = details.locator('section[aria-labelledby="period-dues-payments-heading"]');
   await expect(balances).toContainText("Morning balance payment");
   await expect(balances).not.toContainText("Weekly balance payment");
 

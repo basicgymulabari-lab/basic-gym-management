@@ -282,7 +282,7 @@ function PaymentsPage() {
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>
-            {list.length} matching {tab === "pending" ? "balances" : "payments"}
+            {list.length} matching {tab === "pending" ? "dues" : "payments"}
           </span>
           {(getCurrentSession()?.role === "admin" ||
             getCurrentSession()?.permissions?.payments) && (
@@ -294,7 +294,7 @@ function PaymentsPage() {
                 const rows: (string | number)[][] =
                   tab === "pending"
                     ? [
-                        ["Customer", "Phone", "Email", `Balance (${cur})`],
+                        ["Customer", "Phone", "Email", `Due (${cur})`],
                         ...pending.map((r) => [
                           r.member.name,
                           r.member.phone,
@@ -460,7 +460,7 @@ function PaymentsPage() {
                         </div>
                       </dl>
                       <p className="mt-3 border-t border-border/60 pt-3 text-sm">
-                        Balance{" "}
+                        Due{" "}
                         <span className="float-right font-medium text-warning">
                           {money(due, cur)}
                         </span>
@@ -478,7 +478,7 @@ function PaymentsPage() {
                       <th className="py-3">Total</th>
                       <th className="py-3">Paid</th>
                       <th className="py-3">Status</th>
-                      <th className="py-3 text-right">Balance</th>
+                      <th className="py-3 text-right">Due</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -645,7 +645,7 @@ function PaymentDialog({
               </Select>
               {memberId && (
                 <p className="text-xs text-muted-foreground">
-                  Outstanding balance: {money(due, state.settings.currency)}
+                  Due: {money(due, state.settings.currency)}
                 </p>
               )}
             </div>
@@ -740,9 +740,9 @@ function PaymentDialog({
                 if (!isPositiveMoneyAmount(value)) return toast.error("Enter a valid amount");
                 if (payerType === "member") {
                   if (!memberId) return toast.error("Select a member");
-                  if (due <= 0) return toast.error("This member has no outstanding balance");
+                  if (due <= 0) return toast.error("This member has no amount due");
                   if (value > due)
-                    return toast.error("Payment cannot exceed the outstanding balance");
+                    return toast.error("Payment cannot exceed the due amount");
                 } else {
                   if (customerName.trim().length < 2)
                     return toast.error("Enter the customer's name");

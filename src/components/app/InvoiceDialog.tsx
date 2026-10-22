@@ -203,7 +203,7 @@ export function InvoiceDialog({
             />
             <Row label="Paid" value={money(invoice.paid, settings.currency)} />
             <div className="flex justify-between border-t border-border pt-2 font-display text-lg">
-              <span>Balance due</span>
+              <span>Due</span>
               <span className="text-gold">{money(due, settings.currency)}</span>
             </div>
             {invoice.method && (

@@ -365,7 +365,7 @@ function Dashboard() {
           <StatCard
             label="Pending Due"
             value={money(data.due, cur)}
-            hint="Membership and product balances"
+            hint="Membership and product dues"
             icon={AlertTriangle}
             tone="warning"
             to="/payments"
@@ -545,9 +545,9 @@ function Dashboard() {
           <div className="grid gap-5 lg:grid-cols-3">
             {canViewPayments && (
               <AttentionGroup
-                title="Outstanding balances"
+                title="Outstanding dues"
                 icon={AlertTriangle}
-                empty="No pending balances"
+                empty="No pending dues"
                 items={data.attentionDues.slice(0, 4).map(({ person, due }) => ({
                   id: person.id,
                   label: person.name,
@@ -626,7 +626,7 @@ function Dashboard() {
 
             {canViewPayments && (
               <Panel
-                title="Balance Aging"
+                title="Due Aging"
                 description="Outstanding amount by age"
               >
                 <div className="space-y-4">

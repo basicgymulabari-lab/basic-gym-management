@@ -578,8 +578,8 @@ function ProductsPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-warning hover:text-warning"
-                        aria-label="Collect outstanding balance"
-                        title="Collect outstanding balance"
+                        aria-label="Collect due"
+                        title="Collect due"
                         onClick={() => setCollectFor(s)}
                       >
                         <Wallet className="h-4 w-4" />
@@ -786,7 +786,7 @@ function CollectSaleBalanceDialog({ sale, onClose }: { sale: Sale | null; onClos
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="font-display text-2xl tracking-wide">
-            Collect sale balance
+            Collect product due
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
@@ -796,7 +796,7 @@ function CollectSaleBalanceDialog({ sale, onClose }: { sale: Sale | null; onClos
               {sale.invoiceNo} · {sale.productName}
             </p>
             <p className="mt-3 text-warning">
-              Outstanding: {money(balance, state.settings.currency)}
+              Due: {money(balance, state.settings.currency)}
             </p>
           </div>
           <div className="space-y-2">
@@ -1428,7 +1428,7 @@ function SellDialog({ product, onClose }: { product: Product | null; onClose: ()
             <SummaryRow label="Original price" value={money(gross, cur)} />
             <SummaryRow label="Discount" value={`- ${money(discountAmount, cur)}`} />
             <SummaryRow label="Final payable" value={money(total, cur)} />
-            <SummaryRow label="Remaining balance" value={money(remaining, cur)} />
+            <SummaryRow label="Due" value={money(remaining, cur)} />
           </div>
           <div className="space-y-2">
             <Label>Amount collected now</Label>

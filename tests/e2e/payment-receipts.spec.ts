@@ -702,7 +702,7 @@ test("membership history itemizes discounts and joining fees across responsive s
     await expect(page.getByRole("heading", { name: "Membership History" })).toBeVisible();
     await expect(page.getByText("QA Three Month Plan", { exact: true }).first()).toBeVisible();
     const paidTerm = page.locator("article").filter({ hasText: "QA Three Month Plan" });
-    await expect(paidTerm.getByText("Balance ₹300", { exact: true })).toBeVisible();
+    await expect(paidTerm.getByText("Due ₹300", { exact: true })).toBeVisible();
     const breakdown = paidTerm.locator("dl");
     await expect(breakdown.locator("dt")).toHaveText([
       "Base plan price",
@@ -739,7 +739,7 @@ test("membership history itemizes discounts and joining fees across responsive s
         route: `/members/${member.id}?tab=history`,
         capturedAt: new Date().toISOString(),
         environment: "local app with fully intercepted synthetic Supabase workspace",
-        test: "Membership history displays a reconciled plan price, discount, joining fee, total payable, paid amount, and balance across desktop, tablet, and mobile.",
+        test: "Membership history displays a reconciled plan price, discount, joining fee, total payable, paid amount, and due across desktop, tablet, and mobile.",
         syntheticPayments: [250, 350],
         syntheticPricing: { basePlanPrice: 1000, discount: 200, joiningFee: 100, totalPayable: 900, paid: 600, balance: 300 },
         viewportLayouts: layouts,
@@ -902,7 +902,7 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
   // optimistic in-memory UI state. Sync status is intentionally not exposed
   // as a permanent button when the workspace is already synchronized.
   const correctedCard = page.locator("article").filter({ hasText: "QA Annual Plan" });
-  await expect(correctedCard).toContainText("Balance ₹1,200");
+  await expect(correctedCard).toContainText("Due ₹1,200");
   await expect(correctedCard).toContainText("01 Jan 26 → 01 Jan 27");
 
   await expect

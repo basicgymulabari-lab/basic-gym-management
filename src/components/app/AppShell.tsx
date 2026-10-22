@@ -46,9 +46,10 @@ import {
 import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import { NotificationBell } from "./NotificationBell";
+import { APP_TOUR_REQUEST_KEY } from "@/lib/app-tour";
 import { GlobalSearch } from "./GlobalSearch";
 import { PlatformAppReleaseNotice } from "./PlatformAppReleaseNotice";
-import { APP_TOUR_REQUEST_KEY, OnboardingTour } from "./OnboardingTour";
+import { OnboardingTour } from "./OnboardingTour";
 import { SubscriptionPaywall } from "./SubscriptionPaywall";
 import { usePrivateAssetUrl } from "./PrivateAssetImage";
 import { isPrivateGymLogoPath } from "@/lib/gym/storage";

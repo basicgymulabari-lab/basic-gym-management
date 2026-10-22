@@ -314,10 +314,10 @@ function ReportsPage() {
               String(sumMoney(collectionOtherPayments, (payment) => payment.amount)),
             ],
             [
-              "Membership balance collected",
+              "Membership dues collected",
               String(sumMoney(collectionBalancePayments, (payment) => payment.amount)),
             ],
-            ["Members who paid membership balance", String(collectionBalanceMemberCount)],
+            ["Members who paid membership dues", String(collectionBalanceMemberCount)],
             [
               "Products sold",
               String(collectionProductSales.reduce((total, sale) => total + sale.qty, 0)),
@@ -332,7 +332,7 @@ function ReportsPage() {
               const detail = sale
                 ? `${sale.productName} (${sale.qty} units)`
                 : payment.purpose === "membership_balance" || /\bbalance\b/i.test(payment.note)
-                  ? "Membership balance"
+                  ? "Membership due payment"
                   : payment.kind === "membership"
                     ? "Membership payment"
                     : payment.note || "Other receipt";
@@ -529,7 +529,7 @@ function ReportsPage() {
           <p className="mb-4 text-sm text-muted-foreground">
             {collectionPayments.length} payment{collectionPayments.length === 1 ? "" : "s"} recorded{" "}
             {collectionDetailPeriodDescription}. Product sales are shown separately from cash collected,
-            so unpaid balances are clear.
+            so unpaid dues are clear.
           </p>
           <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
             {[
@@ -543,7 +543,7 @@ function ReportsPage() {
               ],
               ["Other receipts", sumMoney(collectionOtherPayments, (payment) => payment.amount)],
               [
-                "Balance-paying members",
+                "Members paying dues",
                 `${collectionBalanceMemberCount} · ${money(
                   sumMoney(collectionBalancePayments, (payment) => payment.amount),
                   cur,
@@ -660,13 +660,13 @@ function ReportsPage() {
               )}
             </section>
 
-            <section aria-labelledby="period-balance-payments-heading" className="min-w-0">
+            <section aria-labelledby="period-dues-payments-heading" className="min-w-0">
               <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
                 <h3
-                  id="period-balance-payments-heading"
+                  id="period-dues-payments-heading"
                   className="font-display text-base uppercase"
                 >
-                  Membership balances collected
+                  Membership dues collected
                 </h3>
                 <span className="text-xs text-muted-foreground">
                   {collectionBalanceMemberCount} member
@@ -696,7 +696,7 @@ function ReportsPage() {
                             />
                           </p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {payment.invoiceNo} · {payment.note || "Membership balance"}
+                            {payment.invoiceNo} · {payment.note || "Membership due payment"}
                           </p>
                         </div>
                         <span className="shrink-0 text-sm font-medium tabular-nums text-emerald-400">
@@ -708,7 +708,7 @@ function ReportsPage() {
                 </div>
               ) : (
                 <div className="rounded-xl border border-border/70 bg-background/30 px-3 py-5 text-center text-sm text-muted-foreground">
-                  No membership balance payments recorded {collectionDetailPeriodDescription}.
+                  No membership dues collected {collectionDetailPeriodDescription}.
                 </div>
               )}
             </section>

@@ -15,7 +15,6 @@ import {
   Trash2,
   Wallet,
   Eye,
-  ClipboardCopy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
@@ -93,19 +92,6 @@ function recentAttendanceStart(days: number) {
   return localDateInput(date);
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => {
-    const entities: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return entities[character];
-  });
-}
-
 export const Route = createFileRoute("/members/$memberId")({
   validateSearch: (search: Record<string, unknown>) => ({
     tab:
@@ -174,48 +160,6 @@ function MemberProfile() {
   const status = walkIn ? "walk-in" : statusOf(state, member.id);
   const ms = currentMembership(state, member.id);
   const due = walkIn ? outstandingFor(state, member.id) : dueFor(state, member.id);
-  const copyMemberSummary = async () => {
-    const rows: Array<[string, string]> = [
-      ["Member", member.name],
-      ["Status", status],
-      ["Phone", member.phone || "—"],
-    ];
-    if (member.email) rows.push(["Email", member.email]);
-    rows.push(["Membership", ms ? (planOf(state, ms.planId)?.name ?? "—") : "No current plan"]);
-    if (ms) rows.push(["Valid through", shortDate(ms.endDate)]);
-    rows.push(["Balance due", money(due, cur)]);
-    const plainText = `${state.settings.gymName} · Member summary\n\n${rows
-      .map(([label, value]) => `${label}: ${value}`)
-      .join("\n")}`;
-    const html = `<div><p><strong>${escapeHtml(state.settings.gymName)} · Member summary</strong></p><table style="border-collapse:collapse"><tbody>${rows
-      .map(
-        ([label, value]) =>
-          `<tr><th style="padding:4px 12px 4px 0;text-align:left">${escapeHtml(label)}</th><td style="padding:4px 0">${escapeHtml(value)}</td></tr>`,
-      )
-      .join("")}</tbody></table></div>`;
-
-    try {
-      if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            "text/html": new Blob([html], { type: "text/html" }),
-            "text/plain": new Blob([plainText], { type: "text/plain" }),
-          }),
-        ]);
-        toast.success("Formatted member summary copied");
-        return;
-      }
-      await navigator.clipboard.writeText(plainText);
-      toast.success("Member summary copied");
-    } catch {
-      try {
-        await navigator.clipboard.writeText(plainText);
-        toast.success("Plain-text member summary copied");
-      } catch {
-        toast.error("Could not access the clipboard. Check your browser permissions.");
-      }
-    }
-  };
   const payments = state.payments.filter((p) => p.memberId === member.id);
   const purchases = salesFor(state, member.id);
   const allAttendanceRecords = (state.attendance ?? [])
@@ -255,14 +199,6 @@ function MemberProfile() {
         subtitle={walkIn ? "Walk-in Customer" : `Member since ${shortDate(member.joinDate)}`}
         actions={
           <>
-            <Button
-              variant="secondary"
-              onClick={() => void copyMemberSummary()}
-              aria-label="Copy formatted member summary"
-              title="Copy a formatted summary for pasting into documents"
-            >
-              <ClipboardCopy className="mr-2 h-4 w-4" /> Copy summary
-            </Button>
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               <Pencil className="mr-2 h-4 w-4" /> Edit
             </Button>
@@ -410,7 +346,7 @@ function MemberProfile() {
                           <span
                             className={`shrink-0 rounded-full border px-2.5 py-1 text-xs ${bal > 0 ? "border-warning/30 text-warning" : "border-success/30 text-success"}`}
                           >
-                            {bal > 0 ? `Balance ${money(bal, cur)}` : "Fully paid"}
+                            {bal > 0 ? `Due ${money(bal, cur)}` : "Fully paid"}
                           </span>
                         </div>
                         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border/60 pt-3 text-sm sm:grid-cols-3">
@@ -447,7 +383,7 @@ function MemberProfile() {
                               className="w-full sm:w-auto"
                               onClick={() => setCollectFor({ kind: "membership", membership: h })}
                             >
-                              <Wallet className="mr-1.5 h-3.5 w-3.5" /> Collect balance
+                              <Wallet className="mr-1.5 h-3.5 w-3.5" /> Collect due
                             </Button>
                             {canCorrect && (
                               <MembershipHistoryActions
@@ -732,7 +668,7 @@ function MemberProfile() {
                                     variant="secondary"
                                     onClick={() => setCollectFor({ kind: "purchase", sale: s })}
                                   >
-                                    <Wallet className="mr-1.5 h-3.5 w-3.5" /> Collect balance
+                                    <Wallet className="mr-1.5 h-3.5 w-3.5" /> Collect due
                                   </Button>
                                 ) : (
                                   <span className="text-xs text-success">Fully paid</span>
@@ -1002,7 +938,7 @@ function CollectBalanceDialog({
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="font-display text-2xl tracking-wide">Collect Balance</DialogTitle>
+          <DialogTitle className="font-display text-2xl tracking-wide">Collect due</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-3 rounded-xl border border-border bg-secondary/30 p-4 text-sm">
@@ -1014,7 +950,7 @@ function CollectBalanceDialog({
             <Row label="Total price" value={money(total, cur)} />
             <Row label="Already paid" value={money(paid, cur)} />
             <div className="flex items-center justify-between border-t border-border pt-3">
-              <span className="text-muted-foreground">Remaining balance</span>
+              <span className="text-muted-foreground">Due</span>
               <span className="font-display text-xl text-warning">{money(balance, cur)}</span>
             </div>
           </div>
@@ -1050,7 +986,7 @@ function CollectBalanceDialog({
               value={note}
               maxLength={120}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Balance payment"
+              placeholder="Due payment"
             />
           </div>
           <div className="flex justify-end gap-2">
@@ -1062,7 +998,7 @@ function CollectBalanceDialog({
                 const n = Number(amount);
                 if (Number.isNaN(n) || n <= 0)
                   return toast.error("Enter an amount greater than zero");
-                if (n > balance) return toast.error("Payment cannot exceed the remaining balance");
+                if (n > balance) return toast.error("Payment cannot exceed the amount due");
                 const saved = membership
                   ? addPayment({
                       memberId: membership.memberId,
@@ -1070,17 +1006,17 @@ function CollectBalanceDialog({
                       amount: n,
                       method,
                       purpose: "membership_balance",
-                      note: note.trim() || `${plan?.name ?? "Membership"} — balance payment`,
+                      note: note.trim() || `${plan?.name ?? "Membership"} — due payment`,
                     })
                   : addSalePayment(
                       sale!.id,
                       n,
                       method,
-                      note.trim() || `${sale!.productName} — balance payment`,
+                      note.trim() || `${sale!.productName} — due payment`,
                     );
                 if (!saved) return toast.error("Payment could not be recorded");
                 toast.success(
-                  n === balance ? "Payment complete — balance fully paid" : "Payment recorded",
+                  n === balance ? "Payment complete — due fully paid" : "Payment recorded",
                 );
                 setSeeded(null);
                 onClose();
@@ -1265,7 +1201,7 @@ export function RenewDialog({
               <Row label="Original price" value={money(originalPrice, cur)} />
               <Row label="Discount" value={`- ${money(discountAmount, cur)}`} />
               <Row label="Final payable" value={money(finalPrice, cur)} />
-              <Row label="Remaining balance" value={money(remaining, cur)} />
+              <Row label="Due" value={money(remaining, cur)} />
             </div>
           )}
           <div className="space-y-2">
