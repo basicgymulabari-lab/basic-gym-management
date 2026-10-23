@@ -73,18 +73,21 @@ export function GlobalSearch({
           ))}
         </CommandGroup>
         <CommandGroup heading="Recent invoices">
-          {state.payments.slice(0, 12).map((p) => (
-            <CommandItem
-              key={p.id}
-              value={`${p.invoiceNo} ${p.note}`}
-              onSelect={() => go(() => navigate({ to: "/payments" }))}
-            >
-              <span className="font-medium">{p.invoiceNo}</span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {money(p.amount, state.settings.currency)} · {shortDate(p.date)}
-              </span>
-            </CommandItem>
-          ))}
+          {state.payments
+            .filter((p) => !p.invoiceDeletedAt && !p.invoicePurgedAt)
+            .slice(0, 12)
+            .map((p) => (
+              <CommandItem
+                key={p.id}
+                value={`${p.invoiceNo} ${p.note}`}
+                onSelect={() => go(() => navigate({ to: "/payments" }))}
+              >
+                <span className="font-medium">{p.invoiceNo}</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {money(p.amount, state.settings.currency)} · {shortDate(p.date)}
+                </span>
+              </CommandItem>
+            ))}
         </CommandGroup>
       </CommandList>
     </CommandDialog>

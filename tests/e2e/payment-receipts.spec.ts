@@ -796,6 +796,12 @@ test("invoice deletion confirms, persists in Trash, and restores without reversi
   await expect(row).toHaveCount(0);
   await page.goto("/payments");
   await expect(row).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Search members, products, and invoices", exact: true })
+    .click();
+  await page.getByRole("combobox").fill("INV-QA-001");
+  await expect(page.getByRole("option").filter({ hasText: "INV-QA-001" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await page.goto(`/members/${member.id}?tab=history`);
   await expect(
     page
@@ -819,6 +825,25 @@ test("invoice deletion confirms, persists in Trash, and restores without reversi
   await row.getByRole("button", { name: "View invoice", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
   await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "Search members, products, and invoices", exact: true })
+    .click();
+  await page.getByRole("combobox").fill("INV-QA-001");
+  await expect(page.getByRole("option").filter({ hasText: "INV-QA-001" })).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const route of [`/members/${member.id}?tab=payments`, "/payments", "/trash"]) {
+    await page.goto(route);
+    await expect(page.locator("main")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      391,
+    );
+  }
+  await page.screenshot({
+    path: test.info().outputPath("invoice-trash-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/payments");
   await row.getByRole("button", { name: "Delete invoice INV-QA-001", exact: true }).click();
   await page
