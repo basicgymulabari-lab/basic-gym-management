@@ -543,11 +543,11 @@ function SettingsPage() {
             }`}
           >
             <span className="font-semibold text-foreground">
-              {localBilling ? "Local subscription mode." : "Cloud billing connected."}
+              {localBilling ? "Local subscription mode." : "Cloud entitlement verification active."}
             </span>{" "}
             {localBilling
               ? "You can fully test activation, expiry and renewal on this computer. Stripe/Razorpay remain online-only and will take over after Supabase billing is configured."
-              : "Subscription status is verified from the server and cannot be legitimately unlocked by editing browser storage."}
+              : "Subscription status is verified by the server and cannot be legitimately unlocked by editing browser storage. Online checkout also requires provider credentials to be configured."}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -593,7 +593,7 @@ function SettingsPage() {
               <p className="mt-1 text-xs capitalize text-muted-foreground">
                 {subscription.active && subscription.source
                   ? `Activated via ${subscription.source}`
-                  : "Use a recharge code, or pay online with Razorpay or Stripe."}
+                  : "Use a recharge code, or pay online with Stripe or Razorpay when that provider is configured."}
               </p>
             </div>
           </div>
