@@ -56,6 +56,7 @@ try {
   const store = await vite.ssrLoadModule("/src/lib/gym/store.ts");
   const cloud = await vite.ssrLoadModule("/src/lib/gym/cloud.ts");
   const billing = await vite.ssrLoadModule("/src/lib/billing/client.ts");
+  const idempotency = await vite.ssrLoadModule("/src/lib/billing/idempotency.ts");
   const razorpayCheckout = await vite.ssrLoadModule("/src/lib/billing/razorpayCheckout.ts");
   const selectors = await vite.ssrLoadModule("/src/lib/gym/selectors.ts");
   const calendar = await vite.ssrLoadModule("/src/lib/gym/calendar.ts");
@@ -88,6 +89,13 @@ try {
     );
   }
   time.configureTimeZone(undefined, "india");
+  const stripeOperationKey = { current: null };
+  const firstStripeOperationKey = idempotency.getOrCreateIdempotencyKey(stripeOperationKey);
+  assert.equal(
+    idempotency.getOrCreateIdempotencyKey(stripeOperationKey),
+    firstStripeOperationKey,
+    "Stripe retries in the same checkout flow must reuse the provider idempotency key",
+  );
   const scripts = [];
   globalThis.document = {
     createElement: () => ({

@@ -2,10 +2,11 @@
 
 export async function invokeEdgeFunction<T>(
   name: string,
-  options: { body?: Record<string, unknown>; idempotent?: boolean } = {},
+  options: { body?: Record<string, unknown>; idempotent?: boolean; idempotencyKey?: string } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (options.idempotent) headers["Idempotency-Key"] = crypto.randomUUID();
+  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
+  else if (options.idempotent) headers["Idempotency-Key"] = crypto.randomUUID();
   const { data, error } = await supabase.functions.invoke<T>(name, {
     body: options.body ?? {},
     headers,

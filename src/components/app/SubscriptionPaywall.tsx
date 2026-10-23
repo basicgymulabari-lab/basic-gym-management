@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeCheck,
   CreditCard,
@@ -30,6 +30,7 @@ import {
   useSubscription,
 } from "@/lib/billing/client";
 import { withRazorpayCheckoutReady } from "@/lib/billing/razorpayCheckout";
+import { getOrCreateIdempotencyKey } from "@/lib/billing/idempotency";
 import { isSupabaseConfigured } from "@/integrations/supabase/client";
 import { invokeEdgeFunction } from "@/integrations/supabase/functions";
 
@@ -53,6 +54,7 @@ export function SubscriptionPaywall({
   const subscription = useSubscription();
   const [busy, setBusy] = useState<"stripe" | "razorpay" | "recharge" | null>(null);
   const [code, setCode] = useState("");
+  const stripeOperationKey = useRef<string | null>(null);
   const cloudReady = isSupabaseConfigured();
   const planName = import.meta.env.VITE_PRO_PLAN_NAME || "IRONVAULT Pro";
   const priceLabel = import.meta.env.VITE_PRO_PLAN_PRICE_LABEL || "Monthly subscription";
@@ -72,9 +74,11 @@ export function SubscriptionPaywall({
   const startStripe = async () => {
     setBusy("stripe");
     try {
+      const idempotencyKey = getOrCreateIdempotencyKey(stripeOperationKey);
       const body = await invokeEdgeFunction<{ url?: unknown }>("stripe-checkout", {
         body: {},
         idempotent: true,
+        idempotencyKey,
       });
       if (typeof body.url !== "string") throw new Error("Stripe did not return a checkout page.");
       window.location.assign(body.url);
