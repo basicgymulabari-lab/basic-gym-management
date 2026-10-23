@@ -747,7 +747,9 @@ test("daily collection time window filters receipts, due payments and product sa
       purpose: "membership_balance",
       amount: 125,
       method: "cash",
-      date: `${today}T09:15:00`,
+      // Keep fixtures independent of the runner's local timezone. This represents
+      // the same India-local instant used by the original developer machine.
+      date: `${today}T09:15:00+05:30`,
       note: "Morning balance payment",
     },
     {
@@ -758,7 +760,7 @@ test("daily collection time window filters receipts, due payments and product sa
       kind: "product",
       amount: 180,
       method: "cash",
-      date: `${today}T10:30:00`,
+      date: `${today}T10:30:00+05:30`,
       note: "Morning Snack sale",
     },
   );
@@ -774,7 +776,7 @@ test("daily collection time window filters receipts, due payments and product sa
     paid: 180,
     buyer: "Anita Reports QA",
     memberId: "reports-member-1",
-    date: `${today}T10:30:00`,
+    date: `${today}T10:30:00+05:30`,
   });
 
   await signIn(page);
