@@ -2560,7 +2560,12 @@ export function addSalePayment(
 export function trashPaymentInvoice(paymentId: string) {
   const session = getCurrentSession();
   if (session?.role === "receptionist" && !session.permissions?.payments) return false;
-  if (!getState().payments.some((payment) => payment.id === paymentId && !payment.invoiceDeletedAt))
+  if (
+    !getState().payments.some(
+      (payment) =>
+        payment.id === paymentId && !payment.invoiceDeletedAt && !payment.invoicePurgedAt,
+    )
+  )
     return false;
   return setState((workspace) => ({
     ...workspace,

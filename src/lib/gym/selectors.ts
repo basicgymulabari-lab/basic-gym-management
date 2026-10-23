@@ -467,6 +467,11 @@ export function paymentsWithNames(s: GymState): Array<Payment & { who: string }>
     }));
 }
 
+/** A permanent receipt removal wins over a concurrent restoration. */
+export function isPaymentInvoiceVisible(payment: Payment) {
+  return !payment.invoiceDeletedAt && !payment.invoicePurgedAt;
+}
+
 /* ---------------- Notifications ---------------- */
 
 export type NotificationCategory = "due" | "expiry" | "birthday" | "inventory" | "system";

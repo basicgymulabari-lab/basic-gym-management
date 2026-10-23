@@ -761,6 +761,33 @@ test("membership history itemizes discounts and joining fees across responsive s
   );
 });
 
+test("permanently removed invoice stays hidden after a concurrent restoration", async ({
+  page,
+}) => {
+  const conflictingState = structuredClone(state);
+  const receipt = conflictingState.payments.find((payment) => payment.invoiceNo === "INV-QA-001")!;
+  receipt.invoiceDeletedAt = null;
+  receipt.invoicePurgedAt = "2026-10-23T10:00:00.000Z";
+  const errors = await installMockBackend(page, {}, conflictingState);
+  await signIn(page);
+  for (const route of ["/payments", `/members/${member.id}?tab=payments`]) {
+    await page.goto(route);
+    await expect(page.getByRole("row").filter({ hasText: "INV-QA-002" })).toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toHaveCount(0);
+  }
+  await page.goto("/trash");
+  await expect(page.getByRole("heading", { name: "Deleted Invoices", exact: true })).toBeVisible();
+  await expect(page.locator("article").filter({ hasText: "INV-QA-001" })).toHaveCount(0);
+  await page.goto(`/members/${member.id}?tab=history`);
+  await expect(
+    page
+      .locator("article")
+      .filter({ hasText: "QA Three Month Plan" })
+      .getByText("Due ₹300", { exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("invoice deletion confirms, persists in Trash, and restores without reversing payment", async ({
   page,
 }) => {

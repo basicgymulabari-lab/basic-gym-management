@@ -132,6 +132,7 @@ function TrashPage() {
           <EmptyState
             title="No deleted invoices"
             hint="Receipts moved to Trash remain recoverable. Payments still count toward revenue and paid amounts."
+            className="gap-0.5 px-3 py-2 [&>p:first-child]:text-base [&>p:last-child]:text-xs [&>p:last-child]:leading-5 sm:py-4"
           />
         ) : (
           <div className="space-y-3">
@@ -234,11 +235,12 @@ function TrashPage() {
         </DialogContent>
       </Dialog>
 
-      <Panel title="Deleted Membership Terms">
+      <Panel title="Deleted Membership Terms" className="mt-6">
         {state.memberships.filter((term) => term.deletedAt).length === 0 ? (
           <EmptyState
             title="No deleted membership terms"
             hint="Deleted terms appear here for recovery. Payments and receipts are preserved."
+            className="gap-0.5 px-3 py-2 [&>p:first-child]:text-base [&>p:last-child]:text-xs [&>p:last-child]:leading-5 sm:py-4"
           />
         ) : (
           <div className="space-y-3">
@@ -302,7 +304,7 @@ function TrashPage() {
         )}
       </Panel>
 
-      <Panel title="Deleted Members">
+      <Panel title="Deleted Members" className="mt-6">
         {items.length === 0 ? (
           <EmptyState
             title="No deleted members"

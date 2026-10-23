@@ -57,6 +57,7 @@ import {
 } from "@/lib/gym/store";
 import {
   currentMembership,
+  isPaymentInvoiceVisible,
   dueFor,
   isWalkIn,
   membershipHistory,
@@ -164,7 +165,9 @@ function MemberProfile() {
   const status = walkIn ? "walk-in" : statusOf(state, member.id);
   const ms = currentMembership(state, member.id);
   const due = walkIn ? outstandingFor(state, member.id) : dueFor(state, member.id);
-  const payments = state.payments.filter((p) => p.memberId === member.id && !p.invoiceDeletedAt);
+  const payments = state.payments.filter(
+    (p) => p.memberId === member.id && isPaymentInvoiceVisible(p),
+  );
   const purchases = salesFor(state, member.id);
   const allAttendanceRecords = (state.attendance ?? [])
     .filter((record) => record.memberId === member.id && !record.deletedAt)

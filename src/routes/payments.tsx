@@ -37,6 +37,7 @@ import {
   outstandingFor,
   paidFor,
   paymentsWithNames,
+  isPaymentInvoiceVisible,
   planOf,
   salePaid,
   salesFor,
@@ -127,7 +128,7 @@ function PaymentsPage() {
     () =>
       state
         ? paymentsWithNames(state).filter((p) => {
-            if (p.invoiceDeletedAt) return false;
+            if (!isPaymentInvoiceVisible(p)) return false;
             const member = memberOf(state, p.memberId);
             return (
               !q ||
@@ -251,7 +252,7 @@ function PaymentsPage() {
           <Metric
             icon={ReceiptText}
             label="Invoices"
-            value={String(state.payments.filter((payment) => !payment.invoiceDeletedAt).length)}
+            value={String(state.payments.filter(isPaymentInvoiceVisible).length)}
             tone="gold"
           />
         </div>

@@ -8,7 +8,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useGym } from "@/lib/gym/store";
-import { activeMembers, money, shortDate } from "@/lib/gym/selectors";
+import { activeMembers, isPaymentInvoiceVisible, money, shortDate } from "@/lib/gym/selectors";
 
 export function GlobalSearch({
   open,
@@ -74,7 +74,7 @@ export function GlobalSearch({
         </CommandGroup>
         <CommandGroup heading="Recent invoices">
           {state.payments
-            .filter((p) => !p.invoiceDeletedAt && !p.invoicePurgedAt)
+            .filter(isPaymentInvoiceVisible)
             .slice(0, 12)
             .map((p) => (
               <CommandItem

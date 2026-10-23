@@ -383,7 +383,7 @@ test("captures every discovered application route at desktop, tablet, and mobile
           categorySectors.first(),
           "the category distribution chart must render at the initial desktop viewport",
         ).toBeVisible();
-        expect(await categorySectors.count()).toBeGreaterThan(0);
+        await expect.poll(() => categorySectors.count()).toBeGreaterThan(0);
         await waitForStableSvgGeometry(page, ".recharts-pie .recharts-sector");
         result.categoryChartVisibleAfterMs = Date.now() - routeOpenedAt;
         result.categoryChartSettled = true;
@@ -767,7 +767,13 @@ test("captures every discovered application route at desktop, tablet, and mobile
         }
         if (route.name === "trash" && viewport.name === "mobile") {
           const emptyStates = page.locator("section.surface-panel .border-dashed");
-          await expect(emptyStates).toHaveCount(5);
+          await expect(emptyStates).toHaveCount(7);
+          await expect(
+            page.getByRole("heading", { name: "Deleted Invoices", exact: true }),
+          ).toBeVisible();
+          await expect(
+            page.getByRole("heading", { name: "Deleted Membership Terms", exact: true }),
+          ).toBeVisible();
           await expect(
             page.getByRole("heading", { name: "Deleted Members", exact: true }),
           ).toBeVisible();
@@ -856,7 +862,7 @@ test("captures every discovered application route at desktop, tablet, and mobile
             categorySectors.first(),
             `category distribution chart should be visible at ${viewport.name}`,
           ).toBeVisible();
-          expect(await categorySectors.count()).toBeGreaterThan(0);
+          await expect.poll(() => categorySectors.count()).toBeGreaterThan(0);
           await waitForStableSvgGeometry(page, ".recharts-pie .recharts-sector");
         }
         if (route.name === "notifications" && viewport.name === "tablet") {
@@ -1982,11 +1988,16 @@ test("membership summary cards open their matching plans and roster filters", as
 
   await page.goto("/memberships");
   await page.getByRole("tab", { name: /^Active plans \(/ }).click();
-  await expect(page.getByRole("tab", { name: /^Active plans \(/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: /^Active plans \(/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await expect(page.getByRole("tabpanel").getByText("FROZEN", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("tabpanel").getByText("EXPIRED", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("tabpanel").getByText("UNASSIGNED", { exact: true })).toHaveCount(0);
-  await page.getByRole("textbox", { name: "Search membership list by member name, phone or email" }).fill("no-such-member-987654");
+  await page
+    .getByRole("textbox", { name: "Search membership list by member name, phone or email" })
+    .fill("no-such-member-987654");
   await expect(page.getByRole("tabpanel")).toContainText("No matching members");
   await page.getByRole("button", { name: "Clear membership search" }).click();
   const plansSection = page.locator("#membership-plans-section");
