@@ -1,6 +1,32 @@
 import { expect, test } from "@playwright/test";
 import { readdir } from "node:fs/promises";
 
+test("Cloudflare Worker serves a focused sign-in shell for direct login visits", async ({
+  page,
+}) => {
+  const response = await page.goto("/login", { waitUntil: "domcontentloaded" });
+  expect(response?.status()).toBe(200);
+
+  const headers = response?.headers() ?? {};
+  expect(headers["content-type"]).toContain("text/html");
+  expect(headers["content-security-policy"]).toMatch(/nonce-[A-Za-z0-9+/=_-]+/);
+  expect(headers["cache-control"]).toContain("no-store");
+
+  const html = await response!.text();
+  expect(html).toContain("Sign In &amp; Sign Up — IRONVAULT Gym Management");
+  expect(html).toContain(
+    'property="og:title" content="Sign In &amp; Sign Up — IRONVAULT Gym Management"',
+  );
+  expect(html).not.toContain('property="og:title" content="Dashboard — IRONVAULT Gym Management"');
+  expect(html).not.toContain("AppShell-");
+  expect(html).not.toContain("StatCard-");
+  const modulePreloads = [...html.matchAll(/rel="modulepreload"/g)];
+  expect(modulePreloads.length).toBeLessThan(25);
+
+  await expect(page.getByRole("heading", { name: /welcome back/i })).toBeVisible();
+  await expect(page.getByLabel(/email address/i)).toBeVisible();
+});
+
 test("Cloudflare Worker fallback serves the Attendance route and its assets", async ({
   page,
   request,
@@ -14,7 +40,7 @@ test("Cloudflare Worker fallback serves the Attendance route and its assets", as
   expect(headers["cache-control"]).toContain("no-store");
 
   const html = await response!.text();
-  expect(html).toContain('/attendance-history-search.js');
+  expect(html).toContain("/attendance-history-search.js");
   const nonce = headers["content-security-policy"].match(/script-src[^;]*'nonce-([^']+)'/)?.[1];
   expect(nonce).toBeTruthy();
   const escapedNonce = nonce!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -29,7 +55,10 @@ test("Cloudflare Worker fallback serves the Attendance route and its assets", as
 
   const assets = await readdir("dist/client/assets");
   const attendanceChunk = assets.find((asset) => /^attendance-.*\.js$/.test(asset));
-  expect(attendanceChunk, "production build should emit a lazy Attendance route chunk").toBeTruthy();
+  expect(
+    attendanceChunk,
+    "production build should emit a lazy Attendance route chunk",
+  ).toBeTruthy();
   const attendanceAsset = await request.get(`/assets/${attendanceChunk}`);
   expect(attendanceAsset.status()).toBe(200);
   expect(attendanceAsset.headers()["cache-control"]).toContain("immutable");

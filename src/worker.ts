@@ -76,6 +76,11 @@ export default {
     // assigned a fresh CSP nonce. HTML is no-store; force the asset binding to
     // return the document body if a client sends stale validators anyway.
     let assetRequest = request;
+    if (isDocumentRequest && requestUrl.pathname.replace(/\/+$/, "") === "/login") {
+      // Serve the lean sign-in prerender shell on direct login visits instead
+      // of downloading the dashboard shell's route-module preloads first.
+      assetRequest = new Request(new URL("/login-shell/", requestUrl.origin), request);
+    }
     if (isDocumentRequest && (request.headers.has("if-none-match") || request.headers.has("if-modified-since"))) {
       const headers = new Headers(request.headers);
       headers.delete("if-none-match");
