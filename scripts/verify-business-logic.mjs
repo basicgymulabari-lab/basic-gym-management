@@ -2056,14 +2056,19 @@ try {
   );
   assert.equal(
     store.voidUnpaidMembership(paidTerm.id, "wrong plan selected"),
-    "payments_linked",
-    "a term with payments must not be removed or orphan its invoices",
+    "saved",
+    "a paid term can move to Trash without orphaning invoices",
   );
+  correctionState = store.getState();
+  assert(correctionState.memberships.find((item) => item.id === paidTerm.id)?.deletedAt);
+  assert.deepEqual(correctionState.payments, paymentSnapshot);
+  assert.equal(selectors.membershipHistory(correctionState, testMember.id).some((item) => item.id === paidTerm.id), false);
+  assert.equal(store.restoreMembershipTerm(paidTerm.id), true);
   correctionState = store.getState();
   assert.deepEqual(
     correctionState.memberships.find((item) => item.id === paidTerm.id),
-    paidTermSnapshot,
-    "rejected changes must leave the paid membership unchanged",
+    { ...paidTermSnapshot, deletedAt: null, deletedBy: null, deletionReason: undefined },
+    "restoring retains the original paid membership fields",
   );
   assert.deepEqual(correctionState.payments, paymentSnapshot);
 
@@ -2128,7 +2133,7 @@ try {
     "an unpaid term may be removed with a recorded reason",
   );
   correctionState = store.getState();
-  assert.equal(correctionState.memberships.some((item) => item.id === correctedTerm.id), false);
+  assert.equal(correctionState.memberships.some((item) => item.id === correctedTerm.id && !item.deletedAt), false);
   assert.equal(correctionState.payments.length, paymentCountBeforeCorrection);
   assert.equal(correctionState.activities[0].type, "membership_voided");
   assert.match(correctionState.activities[0].description, /duplicate term created by mistake/);
@@ -2165,6 +2170,10 @@ try {
   target.frozen = true;
   target.frozenAt = new Date(Date.now() - 2 * selectors.DAY).toISOString();
   store.restoreBackup(JSON.stringify(modified));
+  assert.equal(store.voidUnpaidMembership(frozenMembership.id, "Accidental frozen term"), "saved");
+  assert.equal(selectors.membershipHistory(store.getState(), testMember.id).some((item) => item.id === frozenMembership.id), false);
+  assert.equal(store.restoreMembershipTerm(frozenMembership.id), true);
+  assert.equal(selectors.currentMembership(store.getState(), testMember.id).frozen, true);
   store.toggleFreeze(frozenMembership.id);
   const extended = selectors.currentMembership(store.getState(), testMember.id);
   assert.equal(extended.frozen, false);

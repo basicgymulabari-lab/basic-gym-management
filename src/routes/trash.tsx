@@ -32,6 +32,7 @@ import {
   deleteExpensePermanently,
   restoreExpense,
   restoreAttendanceRecord,
+  restoreMembershipTerm,
   restoreMember,
   restorePlan,
   restoreProduct,
@@ -120,6 +121,74 @@ function TrashPage() {
           <strong>DELETE</strong>.
         </p>
       </div>
+
+      <Panel title="Deleted Membership Terms">
+        {state.memberships.filter((term) => term.deletedAt).length === 0 ? (
+          <EmptyState
+            title="No deleted membership terms"
+            hint="Deleted terms appear here for recovery. Payments and receipts are preserved."
+          />
+        ) : (
+          <div className="space-y-3">
+            {state.memberships
+              .filter((term) => term.deletedAt)
+              .map((term) => {
+                const member = state.members.find((item) => item.id === term.memberId);
+                const paid = paidFor(state, term.id);
+                return (
+                  <article
+                    key={term.id}
+                    className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border p-4"
+                  >
+                    <div className="min-w-0 space-y-1 text-sm">
+                      <h3 className="break-words font-medium">
+                        {member?.name ?? "Member"} ·{" "}
+                        {state.plans.find((plan) => plan.id === term.planId)?.name ?? "Membership"}
+                      </h3>
+                      <p className="text-muted-foreground">
+                        {shortDate(term.startDate)} → {shortDate(term.endDate)}
+                      </p>
+                      <p>
+                        Total {money(membershipPayable(term), state.settings.currency)} · Paid{" "}
+                        {money(paid, state.settings.currency)} · Due{" "}
+                        {money(
+                          Math.max(0, membershipPayable(term) - paid),
+                          state.settings.currency,
+                        )}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Deleted {shortDateTime(term.deletedAt!)} by {term.deletedBy ?? "Admin"}
+                      </p>
+                      {term.deletionReason && (
+                        <p className="break-words text-muted-foreground">
+                          Reason: {term.deletionReason}
+                        </p>
+                      )}
+                      {member?.deletedAt && (
+                        <p className="text-warning">Restore the member first.</p>
+                      )}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      disabled={!member || Boolean(member.deletedAt)}
+                      onClick={() => {
+                        if (restoreMembershipTerm(term.id))
+                          toast.success("Membership term restored");
+                        else
+                          toast.error(
+                            "The term could not be restored. Check member status and account access.",
+                          );
+                      }}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Restore term
+                    </Button>
+                  </article>
+                );
+              })}
+          </div>
+        )}
+      </Panel>
 
       <Panel title="Deleted Members">
         {items.length === 0 ? (

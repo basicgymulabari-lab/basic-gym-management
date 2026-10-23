@@ -2115,7 +2115,7 @@ export function renewMembership(
     const member = st.members.find((m) => m.id === memberId);
     if (!plan || !member) return st;
     const current = st.memberships
-      .filter((m) => m.memberId === memberId)
+      .filter((m) => m.memberId === memberId && !m.deletedAt)
       .sort((a, b) => +new Date(b.endDate) - +new Date(a.endDate))[0];
     const base = requestedStartDate
       ? new Date(requestedStartDate)
@@ -2199,7 +2199,7 @@ export function correctUnpaidMembership(input: {
 }): UnpaidMembershipChangeResult {
   const current = getState();
   const membership = current.memberships.find((item) => item.id === input.membershipId);
-  if (!membership) return "not_found";
+  if (!membership || membership.deletedAt) return "not_found";
   if (current.payments.some((payment) => payment.membershipId === membership.id)) {
     return "payments_linked";
   }
@@ -2281,38 +2281,40 @@ export function correctUnpaidMembership(input: {
   return "saved";
 }
 
-/** Remove only an unpaid, unfrozen term; paid receipt references are never deleted. */
+/** Move a term to Trash while retaining all payment and receipt references. */
 export function voidUnpaidMembership(
   membershipId: string,
   reason: string,
 ): UnpaidMembershipChangeResult {
   const current = getState();
   const membership = current.memberships.find((item) => item.id === membershipId);
-  if (!membership) return "not_found";
-  if (current.payments.some((payment) => payment.membershipId === membershipId)) {
-    return "payments_linked";
-  }
-  if (membership.frozen) return "membership_frozen";
+  if (!membership || membership.deletedAt) return "not_found";
   const trimmedReason = reason.trim();
   if (trimmedReason.length < 5 || trimmedReason.length > 500) return "invalid";
 
   const planName =
     current.plans.find((item) => item.id === membership.planId)?.name ?? "Membership";
   const saved = setState((workspace) => {
-    if (
-      !workspace.memberships.some((item) => item.id === membershipId) ||
-      workspace.payments.some((payment) => payment.membershipId === membershipId)
-    ) {
+    if (!workspace.memberships.some((item) => item.id === membershipId && !item.deletedAt)) {
       return workspace;
     }
     const next = {
       ...workspace,
-      memberships: workspace.memberships.filter((item) => item.id !== membershipId),
+      memberships: workspace.memberships.map((item) =>
+        item.id === membershipId
+          ? {
+              ...item,
+              deletedAt: new Date().toISOString(),
+              deletedBy: getCurrentSession()?.name || "Admin",
+              deletionReason: trimmedReason,
+            }
+          : item,
+      ),
     };
     return log(
       next,
       "membership_voided",
-      "Unpaid membership removed",
+      "Membership moved to Trash",
       `${planName} removed for ${trimmedReason}`,
       membership.memberId,
     );
@@ -2325,8 +2327,33 @@ export function voidUnpaidMembership(
   return "saved";
 }
 
+export function restoreMembershipTerm(membershipId: string) {
+  const workspace = getState();
+  const membership = workspace.memberships.find(
+    (item) => item.id === membershipId && item.deletedAt,
+  );
+  if (
+    !membership ||
+    !workspace.members.some((item) => item.id === membership.memberId && !item.deletedAt)
+  )
+    return false;
+  return setState((state) => ({
+    ...state,
+    memberships: state.memberships.map((item) =>
+      item.id === membershipId
+        ? { ...item, deletedAt: null, deletedBy: null, deletionReason: undefined }
+        : item,
+    ),
+  }));
+}
+
 export function toggleFreeze(membershipId: string) {
-  if (!getState().memberships.some((membership) => membership.id === membershipId)) return false;
+  if (
+    !getState().memberships.some(
+      (membership) => membership.id === membershipId && !membership.deletedAt,
+    )
+  )
+    return false;
   return setState((st) => ({
     ...st,
     memberships: st.memberships.map((m) => {
@@ -2360,7 +2387,8 @@ export function addPayment(input: {
   const member = state.members.find((item) => item.id === input.memberId && !item.deletedAt);
   const membership = input.membershipId
     ? state.memberships.find(
-        (item) => item.id === input.membershipId && item.memberId === input.memberId,
+        (item) =>
+          item.id === input.membershipId && item.memberId === input.memberId && !item.deletedAt,
       )
     : undefined;
   const amount = normalizeMoney(input.amount);

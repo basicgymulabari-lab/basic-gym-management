@@ -111,8 +111,7 @@ export const Route = createFileRoute("/members/$memberId")({
       { property: "og:title", content: "Member Profile — IRONVAULT Gym Management" },
       {
         property: "og:description",
-        content:
-          "Attendance, membership history, dues and trainer progress notes in one profile.",
+        content: "Attendance, membership history, dues and trainer progress notes in one profile.",
       },
     ],
   }),
@@ -331,8 +330,8 @@ function MemberProfile() {
                     const canCorrect = paid === 0 && !h.frozen;
                     const changeBlockedReason =
                       paid > 0
-                        ? "This term has payment history. To protect issued receipts, it can’t be edited or deleted here."
-                        : "Unfreeze this term before editing or deleting it.";
+                        ? "This term has payment history and cannot be edited. Moving it to Trash preserves its payments and receipts."
+                        : "Unfreeze this term before editing it. It can still be moved to Trash.";
                     return (
                       <article
                         key={h.id}
@@ -392,7 +391,6 @@ function MemberProfile() {
                           )}
                           <MembershipHistoryActions
                             canCorrect={canCorrect}
-                            deleteBlockedReason={canCorrect ? undefined : changeBlockedReason}
                             onEdit={() => setEditingMembership(h)}
                             onVoid={() => setVoidingMembership(h)}
                           />
@@ -1026,15 +1024,7 @@ function dialablePhoneHref(phone: string) {
   return `tel:${dialTarget}`;
 }
 
-function Info({
-  icon: Icon,
-  value,
-  href,
-}: {
-  icon: typeof Mail;
-  value: string;
-  href?: string;
-}) {
+function Info({ icon: Icon, value, href }: { icon: typeof Mail; value: string; href?: string }) {
   return (
     <div className="flex items-start gap-3">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
@@ -1082,7 +1072,7 @@ export function RenewDialog({
   const [paid, setPaid] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const latestMembership = state?.memberships
-    .filter((membership) => membership.memberId === memberId)
+    .filter((membership) => membership.memberId === memberId && !membership.deletedAt)
     .sort((a, b) => +new Date(b.endDate) - +new Date(a.endDate))[0];
   const latestEndDate = latestMembership ? new Date(latestMembership.endDate) : null;
   const suggestedStartDate =
@@ -1378,12 +1368,10 @@ function NoteDialog({
 
 function MembershipHistoryActions({
   canCorrect,
-  deleteBlockedReason,
   onEdit,
   onVoid,
 }: {
   canCorrect: boolean;
-  deleteBlockedReason?: string;
   onEdit: () => void;
   onVoid: () => void;
 }) {
@@ -1399,8 +1387,7 @@ function MembershipHistoryActions({
         variant="ghost"
         className="text-destructive"
         onClick={onVoid}
-        disabled={!canCorrect}
-        title={deleteBlockedReason}
+        title="Move this membership term to Trash"
         aria-label="Delete term"
       >
         <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete term
@@ -1608,9 +1595,9 @@ function VoidMembershipDialog({
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            “{planName}” has no linked payments. Deleting it removes the term from this member’s
-            history; a reason is retained in activity history. This cannot remove or alter an
-            invoice, and the term cannot be restored from Trash.
+            Are you sure you want to move “{planName}” to Trash? It will no longer count toward this
+            member’s membership or dues. Existing payments and invoices are preserved. You can
+            restore the term from Trash.
           </p>
           <div className="space-y-2">
             <Label htmlFor="membership-void-reason">Reason</Label>
@@ -1640,7 +1627,7 @@ function VoidMembershipDialog({
                   );
                   return;
                 }
-                toast.success("Unpaid membership term deleted; the action was recorded.");
+                toast.success("Membership term moved to Trash. You can restore it there.");
                 onClose();
               }}
             >
