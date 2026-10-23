@@ -1981,6 +1981,14 @@ test("membership summary cards open their matching plans and roster filters", as
   await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
 
   await page.goto("/memberships");
+  await page.getByRole("tab", { name: /^Active plans \(/ }).click();
+  await expect(page.getByRole("tab", { name: /^Active plans \(/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel").getByText("FROZEN", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("tabpanel").getByText("EXPIRED", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("tabpanel").getByText("UNASSIGNED", { exact: true })).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Search membership list by member name, phone or email" }).fill("no-such-member-987654");
+  await expect(page.getByRole("tabpanel")).toContainText("No matching members");
+  await page.getByRole("button", { name: "Clear membership search" }).click();
   const plansSection = page.locator("#membership-plans-section");
   await expect(plansSection.getByRole("button", { name: /Show .* plans/ })).toBeVisible();
   await page.getByRole("button", { name: "View active membership plans" }).click();
