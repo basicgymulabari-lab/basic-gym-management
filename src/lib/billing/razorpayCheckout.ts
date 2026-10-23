@@ -29,3 +29,8 @@ export function loadRazorpayCheckout() {
   document.head.appendChild(script);
   return pending;
 }
+
+export async function withRazorpayCheckoutReady<T>(createSubscription: () => Promise<T>) {
+  await loadRazorpayCheckout();
+  return createSubscription();
+}

@@ -29,7 +29,7 @@ import {
   resetLocalPro,
   useSubscription,
 } from "@/lib/billing/client";
-import { loadRazorpayCheckout } from "@/lib/billing/razorpayCheckout";
+import { withRazorpayCheckoutReady } from "@/lib/billing/razorpayCheckout";
 import { isSupabaseConfigured } from "@/integrations/supabase/client";
 import { invokeEdgeFunction } from "@/integrations/supabase/functions";
 
@@ -87,7 +87,7 @@ export function SubscriptionPaywall({
   const startRazorpay = async () => {
     setBusy("razorpay");
     try {
-      const [created] = await Promise.all([
+      const created = await withRazorpayCheckoutReady(() =>
         invokeEdgeFunction<{ keyId?: unknown; subscriptionId?: unknown; email?: unknown }>(
           "razorpay-create",
           {
@@ -95,8 +95,7 @@ export function SubscriptionPaywall({
             idempotent: true,
           },
         ),
-        loadRazorpayCheckout(),
-      ]);
+      );
       if (
         typeof created.keyId !== "string" ||
         typeof created.subscriptionId !== "string" ||

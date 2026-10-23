@@ -103,16 +103,31 @@ try {
   const firstCheckoutLoad = razorpayCheckout.loadRazorpayCheckout();
   scripts[0].onerror();
   await assert.rejects(firstCheckoutLoad, /could not be loaded/i);
+  let subscriptionCreates = 0;
+  const failedCheckoutPreparation = razorpayCheckout.withRazorpayCheckoutReady(async () => {
+    subscriptionCreates += 1;
+  });
+  scripts[1].onerror();
+  await assert.rejects(failedCheckoutPreparation, /could not be loaded/i);
+  assert.equal(
+    subscriptionCreates,
+    0,
+    "a subscription must not be created when the Razorpay checkout script fails",
+  );
   const secondCheckoutLoad = razorpayCheckout.loadRazorpayCheckout();
-  assert.equal(scripts.length, 2, "a failed Razorpay script load should be retryable");
+  assert.equal(scripts.length, 3, "a failed Razorpay script load should be retryable");
   globalThis.window.Razorpay = class Razorpay {};
-  scripts[1].onload();
+  scripts[2].onload();
   await secondCheckoutLoad;
   assert.equal(
     await razorpayCheckout.loadRazorpayCheckout().then(() => true),
     true,
     "a loaded Razorpay checkout script should be reused",
   );
+  await razorpayCheckout.withRazorpayCheckoutReady(async () => {
+    subscriptionCreates += 1;
+  });
+  assert.equal(subscriptionCreates, 1, "subscription creation should proceed once checkout is ready");
   delete globalThis.window.Razorpay;
   delete globalThis.document;
   assert.equal(
