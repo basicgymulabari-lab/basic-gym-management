@@ -29,6 +29,7 @@ import {
   resetLocalPro,
   useSubscription,
 } from "@/lib/billing/client";
+import { loadRazorpayCheckout } from "@/lib/billing/razorpayCheckout";
 import { isSupabaseConfigured } from "@/integrations/supabase/client";
 import { invokeEdgeFunction } from "@/integrations/supabase/functions";
 
@@ -36,22 +37,6 @@ declare global {
   interface Window {
     Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
   }
-}
-
-let razorpayScriptPromise: Promise<void> | null = null;
-
-function loadRazorpayCheckout() {
-  if (window.Razorpay) return Promise.resolve();
-  if (razorpayScriptPromise) return razorpayScriptPromise;
-  razorpayScriptPromise = new Promise<void>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Razorpay Checkout could not be loaded."));
-    document.head.appendChild(script);
-  });
-  return razorpayScriptPromise;
 }
 
 export function SubscriptionPaywall({

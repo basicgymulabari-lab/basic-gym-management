@@ -56,6 +56,7 @@ try {
   const store = await vite.ssrLoadModule("/src/lib/gym/store.ts");
   const cloud = await vite.ssrLoadModule("/src/lib/gym/cloud.ts");
   const billing = await vite.ssrLoadModule("/src/lib/billing/client.ts");
+  const razorpayCheckout = await vite.ssrLoadModule("/src/lib/billing/razorpayCheckout.ts");
   const selectors = await vite.ssrLoadModule("/src/lib/gym/selectors.ts");
   const calendar = await vite.ssrLoadModule("/src/lib/gym/calendar.ts");
   const time = await vite.ssrLoadModule("/src/lib/gym/time.ts");
@@ -87,6 +88,33 @@ try {
     );
   }
   time.configureTimeZone(undefined, "india");
+  const scripts = [];
+  globalThis.document = {
+    createElement: () => ({
+      async: false,
+      onload: null,
+      onerror: null,
+      remove() {
+        this.removed = true;
+      },
+    }),
+    head: { appendChild: (script) => scripts.push(script) },
+  };
+  const firstCheckoutLoad = razorpayCheckout.loadRazorpayCheckout();
+  scripts[0].onerror();
+  await assert.rejects(firstCheckoutLoad, /could not be loaded/i);
+  const secondCheckoutLoad = razorpayCheckout.loadRazorpayCheckout();
+  assert.equal(scripts.length, 2, "a failed Razorpay script load should be retryable");
+  globalThis.window.Razorpay = class Razorpay {};
+  scripts[1].onload();
+  await secondCheckoutLoad;
+  assert.equal(
+    await razorpayCheckout.loadRazorpayCheckout().then(() => true),
+    true,
+    "a loaded Razorpay checkout script should be reused",
+  );
+  delete globalThis.window.Razorpay;
+  delete globalThis.document;
   assert.equal(
     await billing.withRequestDeadline(Promise.resolve("verified"), 50),
     "verified",
