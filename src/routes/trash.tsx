@@ -3,6 +3,10 @@ import { useMemo, useState, type ReactNode } from "react";
 import { RotateCcw, Trash2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
+import {
+  DeleteTrashedMembershipTerm,
+  TrashedMembershipDetails,
+} from "@/components/app/TrashedMembershipTerm";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -236,7 +240,7 @@ function TrashPage() {
       </Dialog>
 
       <Panel title="Deleted Membership Terms" className="mt-6">
-        {state.memberships.filter((term) => term.deletedAt).length === 0 ? (
+        {state.memberships.filter((term) => term.deletedAt && !term.purgedAt).length === 0 ? (
           <EmptyState
             title="No deleted membership terms"
             hint="Deleted terms appear here for recovery. Payments and receipts are preserved."
@@ -245,7 +249,7 @@ function TrashPage() {
         ) : (
           <div className="space-y-3">
             {state.memberships
-              .filter((term) => term.deletedAt)
+              .filter((term) => term.deletedAt && !term.purgedAt)
               .map((term) => {
                 const member = state.members.find((item) => item.id === term.memberId);
                 const paid = paidFor(state, term.id);
@@ -256,8 +260,7 @@ function TrashPage() {
                   >
                     <div className="min-w-0 space-y-1 text-sm">
                       <h3 className="break-words font-medium">
-                        {member?.name ?? "Member"} ·{" "}
-                        {state.plans.find((plan) => plan.id === term.planId)?.name ?? "Membership"}
+                        <TrashedMembershipDetails term={term} />
                       </h3>
                       <p className="text-muted-foreground">
                         {shortDate(term.startDate)} → {shortDate(term.endDate)}
@@ -297,6 +300,7 @@ function TrashPage() {
                       <RotateCcw className="mr-2 h-4 w-4" />
                       Restore term
                     </Button>
+                    <DeleteTrashedMembershipTerm term={term} />
                   </article>
                 );
               })}

@@ -761,6 +761,64 @@ test("membership history itemizes discounts and joining fees across responsive s
   );
 });
 
+test("trashed membership terms show details and require confirmation for permanent removal", async ({
+  page,
+}) => {
+  const saved: GymState[] = [];
+  const errors = await installMockBackend(page, { onWorkspaceSave: (value) => saved.push(value) });
+  await signIn(page);
+  await page.goto(`/members/${member.id}?tab=history`);
+  const card = page.locator("article").filter({ hasText: "QA Three Month Plan" });
+  await card.getByRole("button", { name: "Delete term", exact: true }).click();
+  await page.getByRole("dialog").getByLabel("Reason").fill("Duplicate membership term");
+  await page.getByRole("dialog").getByRole("button", { name: "Delete term", exact: true }).click();
+  await expect
+    .poll(() =>
+      Boolean(saved.at(-1)?.memberships.find((term) => term.id === membership.id)?.deletedAt),
+    )
+    .toBe(true);
+  await page.goto("/trash");
+  const term = page.locator("article").filter({ hasText: "QA Three Month Plan" });
+  await expect(term.getByRole("button", { name: "Restore term", exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await term
+    .getByRole("button", { name: "View deleted term QA Three Month Plan", exact: true })
+    .click();
+  const details = page.getByRole("dialog");
+  await expect(details).toContainText("Deleted membership term details");
+  await expect(details).toContainText("Duplicate membership term");
+  await expect(details).toContainText("INV-QA-001");
+  await expect(details).toContainText("INV-QA-002");
+  await expect(details).toContainText("₹600");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
+  await page.screenshot({ path: test.info().outputPath("deleted-term-details-mobile.png") });
+  await page.keyboard.press("Escape");
+  await term.getByRole("button", { name: "Delete forever", exact: true }).click();
+  const confirm = page.getByRole("dialog");
+  await expect(confirm.getByRole("button", { name: "Delete forever", exact: true })).toBeDisabled();
+  await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(term).toBeVisible();
+  await term.getByRole("button", { name: "Delete forever", exact: true }).click();
+  await confirm.getByLabel("Type DELETE", { exact: true }).fill("DELETE");
+  await confirm.getByRole("button", { name: "Delete forever", exact: true }).click();
+  await expect(term).toHaveCount(0);
+  await expect
+    .poll(() =>
+      Boolean(saved.at(-1)?.memberships.find((item) => item.id === membership.id)?.purgedAt),
+    )
+    .toBe(true);
+  expect(saved.at(-1)?.payments).toEqual(state.payments);
+  await page.reload();
+  await expect(term).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`/members/${member.id}?tab=payments`);
+  const receipt = page.getByRole("row").filter({ hasText: "INV-QA-001" });
+  await expect(receipt).toBeVisible();
+  await receipt.getByRole("button", { name: "View invoice", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
+  expect(errors).toEqual([]);
+});
+
 test("permanently removed invoice stays hidden after a concurrent restoration", async ({
   page,
 }) => {

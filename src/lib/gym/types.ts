@@ -58,6 +58,7 @@ export type Plan = {
 
 /** One membership term for a member. Drives status + dues. */
 export type Membership = {
+  purgedAt?: string | null;
   deletedAt?: string | null;
   deletedBy?: string | null;
   deletionReason?: string;

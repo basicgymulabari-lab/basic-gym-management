@@ -125,7 +125,7 @@ function currentMembershipIndex(s: GymState): Map<string, Membership> {
   const currentMembershipByMember = new Map<string, Membership>();
   const latestMembershipEndByMember = new Map<string, number>();
   for (const membership of s.memberships) {
-    if (membership.deletedAt) continue;
+    if (membership.deletedAt || membership.purgedAt) continue;
     const endTime = new Date(membership.endDate).getTime();
     const previousEnd = latestMembershipEndByMember.get(membership.memberId);
     if (previousEnd === undefined || endTime > previousEnd) {
@@ -162,7 +162,7 @@ function selectorIndexes(s: GymState): SelectorIndexes {
 
   const membershipDueByMember = new Map<string, number>();
   for (const membership of s.memberships) {
-    if (membership.deletedAt) continue;
+    if (membership.deletedAt || membership.purgedAt) continue;
     const due = Math.max(
       0,
       subtractMoney(membershipPayable(membership), paymentsByMembership.get(membership.id) ?? 0),
@@ -196,7 +196,7 @@ export function currentMembership(s: GymState, memberId: string): Membership | u
 
 export function membershipHistory(s: GymState, memberId: string) {
   return s.memberships
-    .filter((m) => m.memberId === memberId && !m.deletedAt)
+    .filter((m) => m.memberId === memberId && !m.deletedAt && !m.purgedAt)
     .sort((a, b) => +new Date(b.startDate) - +new Date(a.startDate));
 }
 

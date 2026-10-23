@@ -2150,6 +2150,14 @@ try {
 
   state = store.getState();
   const frozenMembership = selectors.currentMembership(state, testMember.id);
+  assert.equal(store.deleteMembershipTermForever(correctedTerm.id, "wrong"), false);
+  assert.equal(store.deleteMembershipTermForever(correctedTerm.id, "DELETE"), true);
+  assert.equal(store.restoreMembershipTerm(correctedTerm.id), false, "permanently removed terms cannot be restored");
+  assert.equal(store.getState().payments.length, paymentCountBeforeCorrection);
+  const concurrentTermState = structuredClone(store.getState());
+  concurrentTermState.memberships.find((term) => term.id === correctedTerm.id).deletedAt = null;
+  assert.equal(selectors.membershipHistory(concurrentTermState, testMember.id).some((term) => term.id === correctedTerm.id), false, "permanent removal wins over a concurrent restoration");
+  state = store.getState();
   assert.equal(
     store.toggleFreeze("membership-that-does-not-exist"),
     false,

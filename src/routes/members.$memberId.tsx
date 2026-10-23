@@ -152,7 +152,10 @@ function MemberProfile() {
 
   if (!state) return null;
   const deletedMembershipIds = new Set(
-    state.memberships.filter((term) => term.deletedAt).map((term) => term.id),
+    state.memberships.filter((term) => term.deletedAt || term.purgedAt).map((term) => term.id),
+  );
+  const purgedMembershipIds = new Set(
+    state.memberships.filter((term) => term.purgedAt).map((term) => term.id),
   );
   if (!member) {
     return (
@@ -556,7 +559,9 @@ function MemberProfile() {
                             <p className="mt-1 break-words text-sm text-muted-foreground">
                               {p.note || "Membership payment"}
                               {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
-                                <MembershipTrashNotice />
+                                <MembershipTrashNotice
+                                  permanentlyRemoved={purgedMembershipIds.has(p.membershipId)}
+                                />
                               )}
                             </p>
                           </div>
@@ -598,7 +603,9 @@ function MemberProfile() {
                             <td className="py-3 text-muted-foreground">
                               {p.note}
                               {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
-                                <MembershipTrashNotice />
+                                <MembershipTrashNotice
+                                  permanentlyRemoved={purgedMembershipIds.has(p.membershipId)}
+                                />
                               )}
                             </td>
                             <td className="py-3 text-right">{money(p.amount, cur)}</td>
@@ -1090,7 +1097,10 @@ export function RenewDialog({
   const [paid, setPaid] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const latestMembership = state?.memberships
-    .filter((membership) => membership.memberId === memberId && !membership.deletedAt)
+    .filter(
+      (membership) =>
+        membership.memberId === memberId && !membership.deletedAt && !membership.purgedAt,
+    )
     .sort((a, b) => +new Date(b.endDate) - +new Date(a.endDate))[0];
   const latestEndDate = latestMembership ? new Date(latestMembership.endDate) : null;
   const suggestedStartDate =

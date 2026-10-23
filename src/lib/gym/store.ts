@@ -2115,7 +2115,7 @@ export function renewMembership(
     const member = st.members.find((m) => m.id === memberId);
     if (!plan || !member) return st;
     const current = st.memberships
-      .filter((m) => m.memberId === memberId && !m.deletedAt)
+      .filter((m) => m.memberId === memberId && !m.deletedAt && !m.purgedAt)
       .sort((a, b) => +new Date(b.endDate) - +new Date(a.endDate))[0];
     const base = requestedStartDate
       ? new Date(requestedStartDate)
@@ -2199,7 +2199,7 @@ export function correctUnpaidMembership(input: {
 }): UnpaidMembershipChangeResult {
   const current = getState();
   const membership = current.memberships.find((item) => item.id === input.membershipId);
-  if (!membership || membership.deletedAt) return "not_found";
+  if (!membership || membership.deletedAt || membership.purgedAt) return "not_found";
   if (current.payments.some((payment) => payment.membershipId === membership.id)) {
     return "payments_linked";
   }
@@ -2288,7 +2288,7 @@ export function voidUnpaidMembership(
 ): UnpaidMembershipChangeResult {
   const current = getState();
   const membership = current.memberships.find((item) => item.id === membershipId);
-  if (!membership || membership.deletedAt) return "not_found";
+  if (!membership || membership.deletedAt || membership.purgedAt) return "not_found";
   const trimmedReason = reason.trim();
   if (trimmedReason.length < 5 || trimmedReason.length > 500) return "invalid";
 
@@ -2330,7 +2330,7 @@ export function voidUnpaidMembership(
 export function restoreMembershipTerm(membershipId: string) {
   const workspace = getState();
   const membership = workspace.memberships.find(
-    (item) => item.id === membershipId && item.deletedAt,
+    (item) => item.id === membershipId && item.deletedAt && !item.purgedAt,
   );
   if (
     !membership ||
@@ -2347,10 +2347,34 @@ export function restoreMembershipTerm(membershipId: string) {
   }));
 }
 
+/** Retain the original term for linked receipts, but remove it from Trash recovery. */
+export function deleteMembershipTermForever(membershipId: string, confirmation: string) {
+  if (confirmation !== "DELETE") return false;
+  const session = getCurrentSession();
+  if (
+    session?.role === "receptionist" &&
+    (!session.permissions?.memberships || !session.permissions?.trash)
+  )
+    return false;
+  if (
+    !getState().memberships.some(
+      (term) => term.id === membershipId && term.deletedAt && !term.purgedAt,
+    )
+  )
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    memberships: workspace.memberships.map((term) =>
+      term.id === membershipId ? { ...term, purgedAt: new Date().toISOString() } : term,
+    ),
+  }));
+}
+
 export function toggleFreeze(membershipId: string) {
   if (
     !getState().memberships.some(
-      (membership) => membership.id === membershipId && !membership.deletedAt,
+      (membership) =>
+        membership.id === membershipId && !membership.deletedAt && !membership.purgedAt,
     )
   )
     return false;
@@ -2388,7 +2412,10 @@ export function addPayment(input: {
   const membership = input.membershipId
     ? state.memberships.find(
         (item) =>
-          item.id === input.membershipId && item.memberId === input.memberId && !item.deletedAt,
+          item.id === input.membershipId &&
+          item.memberId === input.memberId &&
+          !item.deletedAt &&
+          !item.purgedAt,
       )
     : undefined;
   const amount = normalizeMoney(input.amount);

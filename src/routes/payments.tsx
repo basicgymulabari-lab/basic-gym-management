@@ -160,7 +160,10 @@ function PaymentsPage() {
 
   if (!state) return null;
   const deletedMembershipIds = new Set(
-    state.memberships.filter((term) => term.deletedAt).map((term) => term.id),
+    state.memberships.filter((term) => term.deletedAt || term.purgedAt).map((term) => term.id),
+  );
+  const purgedMembershipIds = new Set(
+    state.memberships.filter((term) => term.purgedAt).map((term) => term.id),
   );
   const cur = state.settings.currency;
   const setSearch = (patch: Record<string, unknown>) =>
@@ -357,7 +360,9 @@ function PaymentsPage() {
                         <dd className="capitalize">
                           {p.kind}
                           {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
-                            <MembershipTrashNotice />
+                            <MembershipTrashNotice
+                              permanentlyRemoved={purgedMembershipIds.has(p.membershipId)}
+                            />
                           )}
                         </dd>
                       </div>
@@ -406,7 +411,9 @@ function PaymentsPage() {
                         <td className="py-3 capitalize text-muted-foreground">
                           {p.kind}
                           {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
-                            <MembershipTrashNotice />
+                            <MembershipTrashNotice
+                              permanentlyRemoved={purgedMembershipIds.has(p.membershipId)}
+                            />
                           )}
                         </td>
                         <td className="py-3 capitalize text-muted-foreground">{p.method}</td>

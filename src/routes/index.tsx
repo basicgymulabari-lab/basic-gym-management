@@ -170,7 +170,8 @@ function Dashboard() {
     // Soft-deleted members remain in the recoverable Trash for 30 days, but their
     // memberships must not inflate current-roster lifecycle or balance dashboards.
     const liveMemberships = state.memberships.filter(
-      (membership) => !membership.deletedAt && activeMemberIds.has(membership.memberId),
+      (membership) =>
+        !membership.deletedAt && !membership.purgedAt && activeMemberIds.has(membership.memberId),
     );
     // Pre-aggregate dashboard membership data once. Re-filtering the full
     // payment roster for every membership made this page quadratic on gyms
