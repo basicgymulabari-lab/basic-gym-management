@@ -761,6 +761,62 @@ test("membership history itemizes discounts and joining fees across responsive s
   );
 });
 
+test("invoice deletion confirms, persists in Trash, and restores without reversing payment", async ({
+  page,
+}) => {
+  const saved: GymState[] = [];
+  const errors = await installMockBackend(page, { onWorkspaceSave: (value) => saved.push(value) });
+  await signIn(page);
+  await page.goto(`/members/${member.id}?tab=payments`);
+  const row = page.getByRole("row").filter({ hasText: "INV-QA-001" });
+  await row.getByRole("button", { name: "Delete invoice INV-QA-001", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("does not reverse or refund the payment");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "Delete invoice INV-QA-001", exact: true }).click();
+  await dialog.getByRole("button", { name: "Move invoice to Trash", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await expect
+    .poll(() =>
+      Boolean(
+        saved.at(-1)?.payments.find((payment) => payment.invoiceNo === "INV-QA-001")
+          ?.invoiceDeletedAt,
+      ),
+    )
+    .toBe(true);
+  expect(
+    saved.at(-1)?.payments.map(({ invoiceDeletedAt, invoiceDeletedBy, ...payment }) => payment),
+  ).toEqual(state.payments);
+  await page.reload();
+  await expect(row).toHaveCount(0);
+  await page.goto("/payments");
+  await expect(row).toHaveCount(0);
+  await page.goto(`/members/${member.id}?tab=history`);
+  await expect(
+    page
+      .locator("article")
+      .filter({ hasText: "QA Three Month Plan" })
+      .getByText("Due ₹300", { exact: true }),
+  ).toBeVisible();
+  await page.goto("/trash");
+  const receipt = page.locator("article").filter({ hasText: "INV-QA-001" });
+  await expect(receipt).toContainText("Payment retained in financial totals");
+  await receipt.getByRole("button", { name: "Restore invoice" }).click();
+  await expect
+    .poll(
+      () =>
+        saved.at(-1)?.payments.find((payment) => payment.invoiceNo === "INV-QA-001")
+          ?.invoiceDeletedAt,
+    )
+    .toBeNull();
+  await page.goto(`/members/${member.id}?tab=payments`);
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "View invoice", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
+  expect(errors).toEqual([]);
+});
+
 test("paid membership terms confirm deletion, persist in Trash, and restore with receipts intact", async ({
   page,
 }) => {
@@ -785,12 +841,20 @@ test("paid membership terms confirm deletion, persist in Trash, and restore with
     .toBe(true);
   expect(saved.at(-1)?.payments).toEqual(state.payments);
   await page.goto(`/members/${member.id}?tab=payments`);
-  await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toContainText("Membership in Trash · payment retained");
-  await page.getByRole("row").filter({ hasText: "INV-QA-001" }).getByRole("button", { name: "View invoice" }).click();
+  await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toContainText(
+    "Membership in Trash · payment retained",
+  );
+  await page
+    .getByRole("row")
+    .filter({ hasText: "INV-QA-001" })
+    .getByRole("button", { name: "View invoice" })
+    .click();
   await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
   await page.keyboard.press("Escape");
   await page.goto("/payments");
-  await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toContainText("Membership in Trash · payment retained");
+  await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toContainText(
+    "Membership in Trash · payment retained",
+  );
   await page.goto(`/members/${member.id}?tab=history`);
   await page.reload();
   await expect(card).toHaveCount(0);

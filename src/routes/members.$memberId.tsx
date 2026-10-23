@@ -19,6 +19,7 @@ import {
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
 import { MembershipTrashNotice } from "@/components/app/MembershipTrashNotice";
+import { InvoiceTrashButton } from "@/components/app/InvoiceTrashButton";
 import { AppDatePicker } from "@/components/app/AppDatePicker";
 import { AttendanceDeleteDialog } from "@/components/app/AttendanceDeleteDialog";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
@@ -163,7 +164,7 @@ function MemberProfile() {
   const status = walkIn ? "walk-in" : statusOf(state, member.id);
   const ms = currentMembership(state, member.id);
   const due = walkIn ? outstandingFor(state, member.id) : dueFor(state, member.id);
-  const payments = state.payments.filter((p) => p.memberId === member.id);
+  const payments = state.payments.filter((p) => p.memberId === member.id && !p.invoiceDeletedAt);
   const purchases = salesFor(state, member.id);
   const allAttendanceRecords = (state.attendance ?? [])
     .filter((record) => record.memberId === member.id && !record.deletedAt)
@@ -570,6 +571,7 @@ function MemberProfile() {
                           >
                             <Eye className="mr-1.5 h-4 w-4" /> View invoice
                           </Button>
+                          <InvoiceTrashButton payment={p} />
                         </div>
                       </article>
                     ))}
@@ -609,6 +611,7 @@ function MemberProfile() {
                               >
                                 <Eye className="h-4 w-4" />
                               </Button>
+                              <InvoiceTrashButton payment={p} />
                             </td>
                           </tr>
                         ))}

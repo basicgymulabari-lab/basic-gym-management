@@ -78,6 +78,9 @@ export type Membership = {
 export type PaymentMethod = "cash" | "upi" | "card" | "bank" | "cheque" | "other";
 
 export type Payment = {
+  /** Receipt visibility only; the payment remains part of financial totals. */
+  invoiceDeletedAt?: string | null;
+  invoiceDeletedBy?: string | null;
   id: ID;
   invoiceNo: string;
   memberId?: ID | null;

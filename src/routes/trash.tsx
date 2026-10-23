@@ -33,6 +33,7 @@ import {
   restoreExpense,
   restoreAttendanceRecord,
   restoreMembershipTerm,
+  restorePaymentInvoice,
   restoreMember,
   restorePlan,
   restoreProduct,
@@ -121,6 +122,57 @@ function TrashPage() {
           <strong>DELETE</strong>.
         </p>
       </div>
+
+      <Panel title="Deleted Invoices">
+        {state.payments.filter((payment) => payment.invoiceDeletedAt).length === 0 ? (
+          <EmptyState
+            title="No deleted invoices"
+            hint="Receipts moved to Trash remain recoverable. Payments still count toward revenue and paid amounts."
+          />
+        ) : (
+          <div className="space-y-3">
+            {state.payments
+              .filter((payment) => payment.invoiceDeletedAt)
+              .map((payment) => (
+                <article
+                  key={payment.id}
+                  className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border p-4"
+                >
+                  <div className="min-w-0 space-y-1 text-sm">
+                    <h3 className="break-words font-medium">
+                      {payment.invoiceNo} ·{" "}
+                      {state.members.find((member) => member.id === payment.memberId)?.name ??
+                        payment.payerName ??
+                        "Walk-in customer"}
+                    </h3>
+                    <p>
+                      {money(payment.amount, state.settings.currency)} · {payment.method} ·{" "}
+                      {shortDateTime(payment.date)}
+                    </p>
+                    <p className="break-words text-muted-foreground">{payment.note}</p>
+                    <p className="text-muted-foreground">
+                      Deleted {shortDateTime(payment.invoiceDeletedAt!)} by{" "}
+                      {payment.invoiceDeletedBy ?? "Admin"}
+                    </p>
+                    <p className="text-xs text-warning">
+                      Receipt hidden only. Payment retained in financial totals.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      if (restorePaymentInvoice(payment.id)) toast.success("Invoice restored");
+                      else toast.error("Invoice could not be restored. Check your account access.");
+                    }}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Restore invoice
+                  </Button>
+                </article>
+              ))}
+          </div>
+        )}
+      </Panel>
 
       <Panel title="Deleted Membership Terms">
         {state.memberships.filter((term) => term.deletedAt).length === 0 ? (

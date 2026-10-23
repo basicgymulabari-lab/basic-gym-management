@@ -2556,6 +2556,45 @@ export function addSalePayment(
   return true;
 }
 
+/** Archive the receipt without reversing money received or changing member dues. */
+export function trashPaymentInvoice(paymentId: string) {
+  const session = getCurrentSession();
+  if (session?.role === "receptionist" && !session.permissions?.payments) return false;
+  if (!getState().payments.some((payment) => payment.id === paymentId && !payment.invoiceDeletedAt))
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    payments: workspace.payments.map((payment) =>
+      payment.id === paymentId
+        ? {
+            ...payment,
+            invoiceDeletedAt: new Date().toISOString(),
+            invoiceDeletedBy: getCurrentSession()?.name || "Admin",
+          }
+        : payment,
+    ),
+  }));
+}
+
+export function restorePaymentInvoice(paymentId: string) {
+  const session = getCurrentSession();
+  if (
+    session?.role === "receptionist" &&
+    (!session.permissions?.payments || !session.permissions?.trash)
+  )
+    return false;
+  if (!getState().payments.some((payment) => payment.id === paymentId && payment.invoiceDeletedAt))
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    payments: workspace.payments.map((payment) =>
+      payment.id === paymentId
+        ? { ...payment, invoiceDeletedAt: null, invoiceDeletedBy: null }
+        : payment,
+    ),
+  }));
+}
+
 /* ------------------------------------------------------------------ */
 /* Products & sales                                                    */
 /* ------------------------------------------------------------------ */

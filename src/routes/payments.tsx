@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { downloadCsv } from "@/lib/gym/csv";
 import { AppShell } from "@/components/app/AppShell";
 import { MembershipTrashNotice } from "@/components/app/MembershipTrashNotice";
+import { InvoiceTrashButton } from "@/components/app/InvoiceTrashButton";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
 import { StatusBadge } from "@/components/app/StatCard";
 import { TablePager } from "@/components/app/TablePager";
@@ -126,6 +127,7 @@ function PaymentsPage() {
     () =>
       state
         ? paymentsWithNames(state).filter((p) => {
+            if (p.invoiceDeletedAt) return false;
             const member = memberOf(state, p.memberId);
             return (
               !q ||
@@ -249,7 +251,7 @@ function PaymentsPage() {
           <Metric
             icon={ReceiptText}
             label="Invoices"
-            value={String(state.payments.length)}
+            value={String(state.payments.filter((payment) => !payment.invoiceDeletedAt).length)}
             tone="gold"
           />
         </div>
@@ -376,6 +378,7 @@ function PaymentsPage() {
                     >
                       <Printer className="mr-2 h-4 w-4" /> View invoice
                     </Button>
+                    <InvoiceTrashButton payment={p} />
                   </article>
                 ))}
               </div>
@@ -418,6 +421,7 @@ function PaymentsPage() {
                           >
                             <Printer className="h-4 w-4" />
                           </Button>
+                          <InvoiceTrashButton payment={p} />
                         </td>
                       </tr>
                     ))}
