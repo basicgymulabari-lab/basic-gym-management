@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import type { Payment } from "@/lib/gym/types";
 
 export function InvoiceTrashButton({ payment }: { payment: Payment }) {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
   const session = getCurrentSession();
   if (session?.role === "receptionist" && !session.permissions?.payments) return null;
   return (
@@ -45,7 +47,14 @@ export function InvoiceTrashButton({ payment }: { payment: Payment }) {
               variant="destructive"
               onClick={() => {
                 if (trashPaymentInvoice(payment.id)) {
-                  toast.success("Invoice moved to Trash; payment retained");
+                  toast.success("Invoice moved to Trash; payment retained", {
+                    action: {
+                      label: "View in Trash",
+                      onClick: () => {
+                        void navigate({ to: "/trash" });
+                      },
+                    },
+                  });
                   setOpen(false);
                 } else
                   toast.error("Invoice could not be moved to Trash. Check your account access.");

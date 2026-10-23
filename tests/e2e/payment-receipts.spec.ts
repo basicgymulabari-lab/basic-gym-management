@@ -777,6 +777,9 @@ test("invoice deletion confirms, persists in Trash, and restores without reversi
   await row.getByRole("button", { name: "Delete invoice INV-QA-001", exact: true }).click();
   await dialog.getByRole("button", { name: "Move invoice to Trash", exact: true }).click();
   await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "View in Trash", exact: true }).click();
+  await expect(page).toHaveURL(/\/trash$/);
+  await expect(page.locator("article").filter({ hasText: "INV-QA-001" })).toBeVisible();
   await expect
     .poll(() =>
       Boolean(
@@ -789,6 +792,7 @@ test("invoice deletion confirms, persists in Trash, and restores without reversi
     saved.at(-1)?.payments.map(({ invoiceDeletedAt, invoiceDeletedBy, ...payment }) => payment),
   ).toEqual(state.payments);
   await page.reload();
+  await page.goto(`/members/${member.id}?tab=payments`);
   await expect(row).toHaveCount(0);
   await page.goto("/payments");
   await expect(row).toHaveCount(0);
@@ -814,6 +818,42 @@ test("invoice deletion confirms, persists in Trash, and restores without reversi
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: "View invoice", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
+  await page.keyboard.press("Escape");
+  await page.goto("/payments");
+  await row.getByRole("button", { name: "Delete invoice INV-QA-001", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Move invoice to Trash", exact: true })
+    .click();
+  await page.getByRole("button", { name: "View in Trash", exact: true }).last().click();
+  await receipt.getByRole("button", { name: "Delete forever", exact: true }).click();
+  const permanent = page.getByRole("dialog");
+  await expect(
+    permanent.getByRole("button", { name: "Delete forever", exact: true }),
+  ).toBeDisabled();
+  await permanent.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(receipt).toBeVisible();
+  await receipt.getByRole("button", { name: "Delete forever", exact: true }).click();
+  await permanent.getByLabel("Type DELETE", { exact: true }).fill("DELETE");
+  await permanent.getByRole("button", { name: "Delete forever", exact: true }).click();
+  await expect(receipt).toHaveCount(0);
+  await expect
+    .poll(() =>
+      Boolean(
+        saved.at(-1)?.payments.find((payment) => payment.invoiceNo === "INV-QA-001")
+          ?.invoicePurgedAt,
+      ),
+    )
+    .toBe(true);
+  await page.reload();
+  await expect(receipt).toHaveCount(0);
+  expect(
+    saved
+      .at(-1)
+      ?.payments.map(
+        ({ invoiceDeletedAt, invoiceDeletedBy, invoicePurgedAt, ...payment }) => payment,
+      ),
+  ).toEqual(state.payments);
   expect(errors).toEqual([]);
 });
 

@@ -81,6 +81,7 @@ export type Payment = {
   /** Receipt visibility only; the payment remains part of financial totals. */
   invoiceDeletedAt?: string | null;
   invoiceDeletedBy?: string | null;
+  invoicePurgedAt?: string | null;
   id: ID;
   invoiceNo: string;
   memberId?: ID | null;

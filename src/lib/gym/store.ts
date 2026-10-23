@@ -2583,13 +2583,42 @@ export function restorePaymentInvoice(paymentId: string) {
     (!session.permissions?.payments || !session.permissions?.trash)
   )
     return false;
-  if (!getState().payments.some((payment) => payment.id === paymentId && payment.invoiceDeletedAt))
+  if (
+    !getState().payments.some(
+      (payment) => payment.id === paymentId && payment.invoiceDeletedAt && !payment.invoicePurgedAt,
+    )
+  )
     return false;
   return setState((workspace) => ({
     ...workspace,
     payments: workspace.payments.map((payment) =>
       payment.id === paymentId
         ? { ...payment, invoiceDeletedAt: null, invoiceDeletedBy: null }
+        : payment,
+    ),
+  }));
+}
+
+/** Remove a receipt from recovery without deleting its financial payment. */
+export function deletePaymentInvoiceForever(paymentId: string, confirmation: string) {
+  if (confirmation !== "DELETE") return false;
+  const session = getCurrentSession();
+  if (
+    session?.role === "receptionist" &&
+    (!session.permissions?.payments || !session.permissions?.trash)
+  )
+    return false;
+  if (
+    !getState().payments.some(
+      (payment) => payment.id === paymentId && payment.invoiceDeletedAt && !payment.invoicePurgedAt,
+    )
+  )
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    payments: workspace.payments.map((payment) =>
+      payment.id === paymentId
+        ? { ...payment, invoicePurgedAt: new Date().toISOString() }
         : payment,
     ),
   }));

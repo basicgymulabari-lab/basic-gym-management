@@ -34,6 +34,7 @@ import {
   restoreAttendanceRecord,
   restoreMembershipTerm,
   restorePaymentInvoice,
+  deletePaymentInvoiceForever,
   restoreMember,
   restorePlan,
   restoreProduct,
@@ -97,6 +98,8 @@ export const Route = createFileRoute("/trash")({
 function TrashPage() {
   const state = useGym();
   const [target, setTarget] = useState<Member | null>(null);
+  const [invoiceTarget, setInvoiceTarget] = useState<string | null>(null);
+  const [invoiceConfirmation, setInvoiceConfirmation] = useState("");
   const [attendanceTarget, setAttendanceTarget] = useState<AttendanceRecord | null>(null);
   const [detailsTarget, setDetailsTarget] = useState<TrashDetailsTarget | null>(null);
 
@@ -124,7 +127,8 @@ function TrashPage() {
       </div>
 
       <Panel title="Deleted Invoices">
-        {state.payments.filter((payment) => payment.invoiceDeletedAt).length === 0 ? (
+        {state.payments.filter((payment) => payment.invoiceDeletedAt && !payment.invoicePurgedAt)
+          .length === 0 ? (
           <EmptyState
             title="No deleted invoices"
             hint="Receipts moved to Trash remain recoverable. Payments still count toward revenue and paid amounts."
@@ -132,7 +136,7 @@ function TrashPage() {
         ) : (
           <div className="space-y-3">
             {state.payments
-              .filter((payment) => payment.invoiceDeletedAt)
+              .filter((payment) => payment.invoiceDeletedAt && !payment.invoicePurgedAt)
               .map((payment) => (
                 <article
                   key={payment.id}
@@ -168,11 +172,67 @@ function TrashPage() {
                     <RotateCcw className="mr-2 h-4 w-4" />
                     Restore invoice
                   </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => {
+                      setInvoiceTarget(payment.id);
+                      setInvoiceConfirmation("");
+                    }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete forever
+                  </Button>
                 </article>
               ))}
           </div>
         )}
       </Panel>
+
+      <Dialog
+        open={Boolean(invoiceTarget)}
+        onOpenChange={(open) => {
+          if (!open) setInvoiceTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete invoice forever?</DialogTitle>
+            <DialogDescription>
+              This removes the receipt from Trash and prevents restoration. The payment record
+              remains in financial totals; this does not refund money or change dues. Type DELETE to
+              confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <Label htmlFor="invoice-delete-confirmation">Type DELETE</Label>
+          <Input
+            id="invoice-delete-confirmation"
+            value={invoiceConfirmation}
+            onChange={(event) => setInvoiceConfirmation(event.target.value)}
+            autoComplete="off"
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={() => setInvoiceTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={invoiceConfirmation !== "DELETE"}
+              onClick={() => {
+                if (
+                  invoiceTarget &&
+                  deletePaymentInvoiceForever(invoiceTarget, invoiceConfirmation)
+                ) {
+                  toast.success("Invoice removed from Trash permanently; payment retained");
+                  setInvoiceTarget(null);
+                } else toast.error("Invoice could not be removed. Check your account access.");
+              }}
+            >
+              Delete forever
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Panel title="Deleted Membership Terms">
         {state.memberships.filter((term) => term.deletedAt).length === 0 ? (
