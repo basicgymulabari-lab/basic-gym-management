@@ -6,6 +6,7 @@ import { Plus, Search, Printer, Wallet, AlertTriangle, ReceiptText } from "lucid
 import { toast } from "sonner";
 import { downloadCsv } from "@/lib/gym/csv";
 import { AppShell } from "@/components/app/AppShell";
+import { MembershipTrashNotice } from "@/components/app/MembershipTrashNotice";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
 import { StatusBadge } from "@/components/app/StatCard";
 import { TablePager } from "@/components/app/TablePager";
@@ -155,6 +156,9 @@ function PaymentsPage() {
   }, [state, q]);
 
   if (!state) return null;
+  const deletedMembershipIds = new Set(
+    state.memberships.filter((term) => term.deletedAt).map((term) => term.id),
+  );
   const cur = state.settings.currency;
   const setSearch = (patch: Record<string, unknown>) =>
     navigate({ search: (prev: Record<string, unknown>) => ({ ...prev, ...patch }) as never });
@@ -347,7 +351,12 @@ function PaymentsPage() {
                     <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-border/60 pt-3 text-sm">
                       <div>
                         <dt className="text-xs text-muted-foreground">Type</dt>
-                        <dd className="capitalize">{p.kind}</dd>
+                        <dd className="capitalize">
+                          {p.kind}
+                          {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
+                            <MembershipTrashNotice />
+                          )}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-xs text-muted-foreground">Method</dt>
@@ -390,7 +399,12 @@ function PaymentsPage() {
                         <td className="py-3">
                           <PaymentMemberName member={memberForPayment(p)} label={p.who} />
                         </td>
-                        <td className="py-3 capitalize text-muted-foreground">{p.kind}</td>
+                        <td className="py-3 capitalize text-muted-foreground">
+                          {p.kind}
+                          {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
+                            <MembershipTrashNotice />
+                          )}
+                        </td>
                         <td className="py-3 capitalize text-muted-foreground">{p.method}</td>
                         <td className="py-3 text-muted-foreground">{shortDateTime(p.date)}</td>
                         <td className="py-3 text-right font-medium">{money(p.amount, cur)}</td>
@@ -570,7 +584,10 @@ function Metric({
       </span>
       <div className="min-w-0">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-        <p data-testid="payments-metric-value" className="whitespace-nowrap font-display text-xl xl:text-2xl">
+        <p
+          data-testid="payments-metric-value"
+          className="whitespace-nowrap font-display text-xl xl:text-2xl"
+        >
           {value}
         </p>
       </div>
@@ -741,8 +758,7 @@ function PaymentDialog({
                 if (payerType === "member") {
                   if (!memberId) return toast.error("Select a member");
                   if (due <= 0) return toast.error("This member has no amount due");
-                  if (value > due)
-                    return toast.error("Payment cannot exceed the due amount");
+                  if (value > due) return toast.error("Payment cannot exceed the due amount");
                 } else {
                   if (customerName.trim().length < 2)
                     return toast.error("Enter the customer's name");

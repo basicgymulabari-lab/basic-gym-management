@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
+import { MembershipTrashNotice } from "@/components/app/MembershipTrashNotice";
 import { AppDatePicker } from "@/components/app/AppDatePicker";
 import { AttendanceDeleteDialog } from "@/components/app/AttendanceDeleteDialog";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
@@ -148,6 +149,9 @@ function MemberProfile() {
   const member = state?.members.find((m) => m.id === memberId);
 
   if (!state) return null;
+  const deletedMembershipIds = new Set(
+    state.memberships.filter((term) => term.deletedAt).map((term) => term.id),
+  );
   if (!member) {
     return (
       <EmptyState title="Member not found" hint="This record may have been permanently deleted." />
@@ -547,6 +551,9 @@ function MemberProfile() {
                             <p className="break-all font-medium text-gold">{p.invoiceNo}</p>
                             <p className="mt-1 break-words text-sm text-muted-foreground">
                               {p.note || "Membership payment"}
+                              {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
+                                <MembershipTrashNotice />
+                              )}
                             </p>
                           </div>
                           <p className="shrink-0 text-right font-medium">{money(p.amount, cur)}</p>
@@ -583,7 +590,12 @@ function MemberProfile() {
                           <tr key={p.id} className="border-b border-border/50">
                             <td className="py-3 font-medium text-gold">{p.invoiceNo}</td>
                             <td className="py-3 text-muted-foreground">{shortDateTime(p.date)}</td>
-                            <td className="py-3 text-muted-foreground">{p.note}</td>
+                            <td className="py-3 text-muted-foreground">
+                              {p.note}
+                              {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
+                                <MembershipTrashNotice />
+                              )}
+                            </td>
                             <td className="py-3 text-right">{money(p.amount, cur)}</td>
                             <td className="py-3 text-right">
                               <Button

@@ -784,6 +784,14 @@ test("paid membership terms confirm deletion, persist in Trash, and restore with
     )
     .toBe(true);
   expect(saved.at(-1)?.payments).toEqual(state.payments);
+  await page.goto(`/members/${member.id}?tab=payments`);
+  await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toContainText("Membership in Trash · payment retained");
+  await page.getByRole("row").filter({ hasText: "INV-QA-001" }).getByRole("button", { name: "View invoice" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
+  await page.keyboard.press("Escape");
+  await page.goto("/payments");
+  await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toContainText("Membership in Trash · payment retained");
+  await page.goto(`/members/${member.id}?tab=history`);
   await page.reload();
   await expect(card).toHaveCount(0);
   await page.goto("/trash");
@@ -798,6 +806,9 @@ test("paid membership terms confirm deletion, persist in Trash, and restore with
   await expect(card).toBeVisible();
   await expect(card.getByText("Due ₹300", { exact: true })).toBeVisible();
   expect(saved.at(-1)?.payments).toEqual(state.payments);
+  await page.goto(`/members/${member.id}?tab=payments`);
+  await expect(page.getByText("Membership in Trash · payment retained")).toHaveCount(0);
+  await page.goto(`/members/${member.id}?tab=history`);
   await page.reload();
   await expect(card).toBeVisible();
   expect(errors).toEqual([]);
