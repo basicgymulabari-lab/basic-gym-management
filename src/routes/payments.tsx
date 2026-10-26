@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
-import { z } from "zod";
 import { Plus, Search, Printer, Wallet, AlertTriangle, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { downloadCsv } from "@/lib/gym/csv";
@@ -48,14 +47,15 @@ import {
 import type { Member, PaymentMethod } from "@/lib/gym/types";
 import { addMoney, isPositiveMoneyAmount, sumMoney } from "@/lib/gym/money";
 
-const searchSchema = z.object({
-  tab: z.string().catch("collected").default("collected"),
-  q: z.string().catch("").default(""),
-  page: z.number().int().catch(1).default(1),
+const parsePaymentsSearch = (search: Record<string, unknown>) => ({
+  tab: typeof search.tab === "string" ? search.tab : "collected",
+  q: typeof search.q === "string" ? search.q : "",
+  page:
+    typeof search.page === "number" && Number.isInteger(search.page) ? search.page : 1,
 });
 
 export const Route = createFileRoute("/payments")({
-  validateSearch: searchSchema,
+  validateSearch: parsePaymentsSearch,
   head: () => ({
     meta: [
       { title: "Payments — IRONVAULT Gym Management" },

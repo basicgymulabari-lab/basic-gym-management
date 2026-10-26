@@ -684,7 +684,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Button asChild size="sm" className="hidden font-semibold sm:inline-flex">
                   <Link
                     to="/members"
-                    search={{ filter: "all", q: "", new: true }}
+                    search={{ filter: "all", q: "", shift: "all", page: 1, new: true }}
                     data-tour="add-member"
                   >
                     Add Member

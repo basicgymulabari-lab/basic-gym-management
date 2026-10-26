@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { z } from "zod";
 import { Search, Plus, Eye, Pencil, Trash2, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
@@ -48,16 +47,20 @@ import {
   useSubscription,
 } from "@/lib/billing/client";
 
-const searchSchema = z.object({
-  filter: z.string().catch("all").default("all"),
-  q: z.string().catch("").default(""),
-  shift: z.string().catch("all").default("all"),
-  page: z.coerce.number().int().min(1).catch(1).default(1),
-  new: z.boolean().catch(false).default(false),
-});
+const parseMembersSearch = (search: Record<string, unknown>) => {
+  const page = Number(search.page);
+
+  return {
+    filter: typeof search.filter === "string" ? search.filter : "all",
+    q: typeof search.q === "string" ? search.q : "",
+    shift: typeof search.shift === "string" ? search.shift : "all",
+    page: Number.isInteger(page) && page >= 1 ? page : 1,
+    new: typeof search.new === "boolean" ? search.new : false,
+  };
+};
 
 export const Route = createFileRoute("/members/")({
-  validateSearch: searchSchema,
+  validateSearch: parseMembersSearch,
   head: () => ({
     meta: [
       { title: "Members — IRONVAULT Gym Management" },

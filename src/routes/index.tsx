@@ -406,7 +406,10 @@ function Dashboard() {
           >
             {(!isReceptionist || session?.permissions?.members) && (
               <Button asChild variant="secondary" className="justify-start">
-                <Link to="/members" search={{ filter: "all", q: "", new: true }}>
+                <Link
+                  to="/members"
+                  search={{ filter: "all", q: "", shift: "all", page: 1, new: true }}
+                >
                   <UserRoundPlus className="mr-2 h-4 w-4 text-gold" /> Add Member
                 </Link>
               </Button>

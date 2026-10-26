@@ -80,7 +80,9 @@ export function GlobalSearch({
               <CommandItem
                 key={p.id}
                 value={`${p.invoiceNo} ${p.note}`}
-                onSelect={() => go(() => navigate({ to: "/payments" }))}
+                onSelect={() =>
+                  go(() => navigate({ to: "/payments", search: { tab: "collected", q: "", page: 1 } }))
+                }
               >
                 <span className="font-medium">{p.invoiceNo}</span>
                 <span className="ml-auto text-xs text-muted-foreground">

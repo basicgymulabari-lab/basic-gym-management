@@ -451,7 +451,7 @@ function ReportsPage() {
         </Link>
         <Link
           to="/members"
-          search={{ filter: "due" }}
+          search={{ filter: "due", q: "", shift: "all", page: 1, new: false }}
           aria-label="View members with pending dues"
           className="group surface-panel rounded-2xl p-5 transition-colors hover:border-gold/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70"
         >
@@ -479,7 +479,7 @@ function ReportsPage() {
         )}
         <Link
           to="/members"
-          search={{ filter: "active" }}
+          search={{ filter: "active", q: "", shift: "all", page: 1, new: false }}
           aria-label="View active members"
           className="group surface-panel rounded-2xl p-5 transition-colors hover:border-gold/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70"
         >

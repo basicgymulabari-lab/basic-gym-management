@@ -199,7 +199,10 @@ function MemberProfile() {
   return (
     <>
       <Button variant="ghost" size="sm" className="mb-3 -ml-2 text-muted-foreground" asChild>
-        <Link to="/members" search={{ filter: "all", q: "", new: false }}>
+        <Link
+          to="/members"
+          search={{ filter: "all", q: "", shift: "all", page: 1, new: false }}
+        >
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to members
         </Link>
       </Button>
