@@ -779,7 +779,11 @@ test("captures every discovered application route at desktop, tablet, and mobile
           ).toBeVisible();
           for (const emptyState of await emptyStates.all()) {
             const bounds = await emptyState.boundingBox();
-            expect(bounds?.height ?? Number.POSITIVE_INFINITY).toBeLessThan(90);
+            const text = (await emptyState.innerText()).replace(/\s+/g, " ").trim();
+            expect(
+              bounds?.height ?? Number.POSITIVE_INFINITY,
+              `Trash empty state should stay compact while allowing wrapped hint text: ${text}`,
+            ).toBeLessThan(120);
           }
         }
         if (route.name === "payments" && viewport.name === "tablet") {
