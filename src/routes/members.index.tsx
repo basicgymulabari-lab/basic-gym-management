@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { zodValidator, fallback } from "@tanstack/zod-adapter";
 import { z } from "zod";
 import { Search, Plus, Eye, Pencil, Trash2, Filter } from "lucide-react";
 import { toast } from "sonner";
@@ -50,15 +49,15 @@ import {
 } from "@/lib/billing/client";
 
 const searchSchema = z.object({
-  filter: fallback(z.string(), "all").default("all"),
-  q: fallback(z.string(), "").default(""),
-  shift: fallback(z.string(), "all").default("all"),
-  page: fallback(z.coerce.number().int().min(1), 1).default(1),
-  new: fallback(z.boolean(), false).default(false),
+  filter: z.string().catch("all").default("all"),
+  q: z.string().catch("").default(""),
+  shift: z.string().catch("all").default("all"),
+  page: z.coerce.number().int().min(1).catch(1).default(1),
+  new: z.boolean().catch(false).default(false),
 });
 
 export const Route = createFileRoute("/members/")({
-  validateSearch: zodValidator(searchSchema),
+  validateSearch: searchSchema,
   head: () => ({
     meta: [
       { title: "Members — IRONVAULT Gym Management" },

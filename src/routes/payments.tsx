@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
-import { zodValidator, fallback } from "@tanstack/zod-adapter";
 import { z } from "zod";
 import { Plus, Search, Printer, Wallet, AlertTriangle, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
@@ -50,13 +49,13 @@ import type { Member, PaymentMethod } from "@/lib/gym/types";
 import { addMoney, isPositiveMoneyAmount, sumMoney } from "@/lib/gym/money";
 
 const searchSchema = z.object({
-  tab: fallback(z.string(), "collected").default("collected"),
-  q: fallback(z.string(), "").default(""),
-  page: fallback(z.number().int(), 1).default(1),
+  tab: z.string().catch("collected").default("collected"),
+  q: z.string().catch("").default(""),
+  page: z.number().int().catch(1).default(1),
 });
 
 export const Route = createFileRoute("/payments")({
-  validateSearch: zodValidator(searchSchema),
+  validateSearch: searchSchema,
   head: () => ({
     meta: [
       { title: "Payments — IRONVAULT Gym Management" },
