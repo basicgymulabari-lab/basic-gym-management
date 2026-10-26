@@ -146,12 +146,24 @@ async function installSyntheticSupabase(page: Page) {
     if (pathname.startsWith("/rest/v1/")) return json(route, []);
     if (pathname.endsWith("/functions/v1/staff-receptionist")) {
       const body = route.request().postDataJSON() as {
+        action?: string;
         enabled: boolean;
         name: string;
         email: string;
         password?: string;
         permissions: Record<string, boolean>;
       };
+      if (body.action === "read")
+        return json(route, {
+          account: workspace.receptionist
+            ? {
+                name: workspace.receptionist.name,
+                email: workspace.receptionist.email,
+                enabled: workspace.receptionist.enabled,
+                permissions: workspace.receptionist.permissions,
+              }
+            : null,
+        });
       workspace.receptionist = {
         enabled: body.enabled,
         name: body.name,

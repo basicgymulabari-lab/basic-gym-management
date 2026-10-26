@@ -216,6 +216,8 @@ async function installMockBackend(
     if (pathname.endsWith("/auth/v1/user")) return json(route, qaOwner);
     if (pathname.endsWith("/auth/v1/logout")) return route.fulfill({ status: 204, body: "" });
     if (pathname.endsWith("/rest/v1/gym_users")) return json(route, []);
+    if (pathname.endsWith("/functions/v1/staff-receptionist"))
+      return json(route, { account: null });
     if (pathname.endsWith("/rest/v1/rpc/get_current_gym_context")) return json(route, context);
     if (pathname.endsWith("/rest/v1/rpc/load_current_gym_workspace")) {
       hooks.onWorkspaceLoad?.(structuredClone(workspace.state));

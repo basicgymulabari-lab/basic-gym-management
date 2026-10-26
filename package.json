@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test:logic": "node scripts/verify-business-logic.mjs",
-    "test:edge-security": "node scripts/verify-edge-security.mjs",
+    "test:edge-security": "node scripts/verify-edge-security.mjs && node scripts/verify-sql-injection.mjs && node scripts/verify-owner-receptionist-read.mjs",
     "test:e2e": "node scripts/run-e2e-suites.mjs",
     "test:e2e:release": "playwright test --config playwright.release.config.ts",
     "test:load": "k6 run tests/load/smoke.js",
