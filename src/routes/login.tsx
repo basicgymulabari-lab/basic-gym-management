@@ -6,6 +6,22 @@ export const Route = createFileRoute("/login")({
     meta: [
       { title: "Sign In & Sign Up — IRONVAULT Gym Management" },
       { name: "description", content: "Create your gym account or sign in securely to IRONVAULT." },
+      {
+        property: "og:title",
+        content: "Sign In & Sign Up — IRONVAULT Gym Management",
+      },
+      {
+        property: "og:description",
+        content: "Create your gym account or sign in securely to IRONVAULT.",
+      },
+      {
+        name: "twitter:title",
+        content: "Sign In & Sign Up — IRONVAULT Gym Management",
+      },
+      {
+        name: "twitter:description",
+        content: "Create your gym account or sign in securely to IRONVAULT.",
+      },
     ],
   }),
   component: LoginPage,

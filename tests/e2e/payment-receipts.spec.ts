@@ -216,6 +216,8 @@ async function installMockBackend(
     if (pathname.endsWith("/auth/v1/user")) return json(route, qaOwner);
     if (pathname.endsWith("/auth/v1/logout")) return route.fulfill({ status: 204, body: "" });
     if (pathname.endsWith("/rest/v1/gym_users")) return json(route, []);
+    if (pathname.endsWith("/functions/v1/staff-receptionist"))
+      return json(route, { account: null });
     if (pathname.endsWith("/rest/v1/rpc/get_current_gym_context")) return json(route, context);
     if (pathname.endsWith("/rest/v1/rpc/load_current_gym_workspace")) {
       hooks.onWorkspaceLoad?.(structuredClone(workspace.state));
@@ -245,7 +247,9 @@ async function installMockBackend(
   return errors;
 }
 
-test("recent sales link names to profiles while the eye keeps opening the invoice", async ({ page }) => {
+test("recent sales link names to profiles while the eye keeps opening the invoice", async ({
+  page,
+}) => {
   const seededState: GymState = structuredClone(state);
   const soldProductId = "receipt-product-cm";
   const memberSaleId = "receipt-sale-member";
@@ -311,7 +315,9 @@ test("recent sales link names to profiles while the eye keeps opening the invoic
   await expect(productDialog).toContainText("Supplements");
   await productDialog.getByRole("button", { name: "Close" }).first().click();
 
-  await memberSale.getByRole("button", { name: "Open member profile for Anita Receipt QA" }).click();
+  await memberSale
+    .getByRole("button", { name: "Open member profile for Anita Receipt QA" })
+    .click();
   await expect(page).toHaveURL(new RegExp(`/members/${member.id}(?:\\?|$)`));
   await expect(page.getByRole("heading", { name: member.name })).toBeVisible();
   await expect(page.getByRole("link", { name: member.phone })).toHaveAttribute(
@@ -715,13 +721,7 @@ test("membership history itemizes discounts and joining fees across responsive s
       "Total payable",
       "Paid",
     ]);
-    await expect(breakdown.locator("dd")).toHaveText([
-      "₹1,000",
-      "−₹200",
-      "₹100",
-      "₹900",
-      "₹600",
-    ]);
+    await expect(breakdown.locator("dd")).toHaveText(["₹1,000", "−₹200", "₹100", "₹900", "₹600"]);
     await page.evaluate(() => document.fonts.ready);
     const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(documentWidth).toBeLessThanOrEqual(viewport.width + 1);
@@ -745,7 +745,14 @@ test("membership history itemizes discounts and joining fees across responsive s
         environment: "local app with fully intercepted synthetic Supabase workspace",
         test: "Membership history displays a reconciled plan price, discount, joining fee, total payable, paid amount, and due across desktop, tablet, and mobile.",
         syntheticPayments: [250, 350],
-        syntheticPricing: { basePlanPrice: 1000, discount: 200, joiningFee: 100, totalPayable: 900, paid: 600, balance: 300 },
+        syntheticPricing: {
+          basePlanPrice: 1000,
+          discount: 200,
+          joiningFee: 100,
+          totalPayable: 900,
+          paid: 600,
+          balance: 300,
+        },
         viewportLayouts: layouts,
         consoleAndRequestErrors: errors,
         productionDataTouched: false,
@@ -756,12 +763,279 @@ test("membership history itemizes discounts and joining fees across responsive s
   );
 });
 
+test("trashed membership terms show details and require confirmation for permanent removal", async ({
+  page,
+}) => {
+  const saved: GymState[] = [];
+  const errors = await installMockBackend(page, { onWorkspaceSave: (value) => saved.push(value) });
+  await signIn(page);
+  await page.goto(`/members/${member.id}?tab=history`);
+  const card = page.locator("article").filter({ hasText: "QA Three Month Plan" });
+  await card.getByRole("button", { name: "Delete term", exact: true }).click();
+  await page.getByRole("dialog").getByLabel("Reason").fill("Duplicate membership term");
+  await page.getByRole("dialog").getByRole("button", { name: "Delete term", exact: true }).click();
+  await expect
+    .poll(() =>
+      Boolean(saved.at(-1)?.memberships.find((term) => term.id === membership.id)?.deletedAt),
+    )
+    .toBe(true);
+  await page.goto("/trash");
+  const term = page.locator("article").filter({ hasText: "QA Three Month Plan" });
+  await expect(term.getByRole("button", { name: "Restore term", exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await term
+    .getByRole("button", { name: "View deleted term QA Three Month Plan", exact: true })
+    .click();
+  const details = page.getByRole("dialog");
+  await expect(details).toContainText("Deleted membership term details");
+  await expect(details).toContainText("Duplicate membership term");
+  await expect(details).toContainText("INV-QA-001");
+  await expect(details).toContainText("INV-QA-002");
+  await expect(details).toContainText("₹600");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
+  await page.screenshot({ path: test.info().outputPath("deleted-term-details-mobile.png") });
+  await page.keyboard.press("Escape");
+  await term.getByRole("button", { name: "Delete forever", exact: true }).click();
+  const confirm = page.getByRole("dialog");
+  await expect(confirm.getByRole("button", { name: "Delete forever", exact: true })).toBeDisabled();
+  await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(term).toBeVisible();
+  await term.getByRole("button", { name: "Delete forever", exact: true }).click();
+  await confirm.getByLabel("Type DELETE", { exact: true }).fill("DELETE");
+  await confirm.getByRole("button", { name: "Delete forever", exact: true }).click();
+  await expect(term).toHaveCount(0);
+  await expect
+    .poll(() =>
+      Boolean(saved.at(-1)?.memberships.find((item) => item.id === membership.id)?.purgedAt),
+    )
+    .toBe(true);
+  expect(saved.at(-1)?.payments).toEqual(state.payments);
+  await page.reload();
+  await expect(term).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`/members/${member.id}?tab=payments`);
+  const receipt = page.getByRole("row").filter({ hasText: "INV-QA-001" });
+  await expect(receipt).toBeVisible();
+  await receipt.getByRole("button", { name: "View invoice", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
+  expect(errors).toEqual([]);
+});
+
+test("permanently removed invoice stays hidden after a concurrent restoration", async ({
+  page,
+}) => {
+  const conflictingState = structuredClone(state);
+  const receipt = conflictingState.payments.find((payment) => payment.invoiceNo === "INV-QA-001")!;
+  receipt.invoiceDeletedAt = null;
+  receipt.invoicePurgedAt = "2026-10-23T10:00:00.000Z";
+  const errors = await installMockBackend(page, {}, conflictingState);
+  await signIn(page);
+  for (const route of ["/payments", `/members/${member.id}?tab=payments`]) {
+    await page.goto(route);
+    await expect(page.getByRole("row").filter({ hasText: "INV-QA-002" })).toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toHaveCount(0);
+  }
+  await page.goto("/trash");
+  await expect(page.getByRole("heading", { name: "Deleted Invoices", exact: true })).toBeVisible();
+  await expect(page.locator("article").filter({ hasText: "INV-QA-001" })).toHaveCount(0);
+  await page.goto(`/members/${member.id}?tab=history`);
+  await expect(
+    page
+      .locator("article")
+      .filter({ hasText: "QA Three Month Plan" })
+      .getByText("Due ₹300", { exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("invoice deletion confirms, persists in Trash, and restores without reversing payment", async ({
+  page,
+}) => {
+  const saved: GymState[] = [];
+  const errors = await installMockBackend(page, { onWorkspaceSave: (value) => saved.push(value) });
+  await signIn(page);
+  await page.goto(`/members/${member.id}?tab=payments`);
+  const row = page.getByRole("row").filter({ hasText: "INV-QA-001" });
+  await row.getByRole("button", { name: "Delete invoice INV-QA-001", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("does not reverse or refund the payment");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "Delete invoice INV-QA-001", exact: true }).click();
+  await dialog.getByRole("button", { name: "Move invoice to Trash", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "View in Trash", exact: true }).click();
+  await expect(page).toHaveURL(/\/trash$/);
+  await expect(page.locator("article").filter({ hasText: "INV-QA-001" })).toBeVisible();
+  await expect
+    .poll(() =>
+      Boolean(
+        saved.at(-1)?.payments.find((payment) => payment.invoiceNo === "INV-QA-001")
+          ?.invoiceDeletedAt,
+      ),
+    )
+    .toBe(true);
+  expect(
+    saved.at(-1)?.payments.map(({ invoiceDeletedAt, invoiceDeletedBy, ...payment }) => payment),
+  ).toEqual(state.payments);
+  await page.reload();
+  await page.goto(`/members/${member.id}?tab=payments`);
+  await expect(row).toHaveCount(0);
+  await page.goto("/payments");
+  await expect(row).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Search members, products, and invoices", exact: true })
+    .click();
+  await page.getByRole("combobox").fill("INV-QA-001");
+  await expect(page.getByRole("option").filter({ hasText: "INV-QA-001" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.goto(`/members/${member.id}?tab=history`);
+  await expect(
+    page
+      .locator("article")
+      .filter({ hasText: "QA Three Month Plan" })
+      .getByText("Due ₹300", { exact: true }),
+  ).toBeVisible();
+  await page.goto("/trash");
+  const receipt = page.locator("article").filter({ hasText: "INV-QA-001" });
+  await expect(receipt).toContainText("Payment retained in financial totals");
+  await receipt.getByRole("button", { name: "Restore invoice" }).click();
+  await expect
+    .poll(
+      () =>
+        saved.at(-1)?.payments.find((payment) => payment.invoiceNo === "INV-QA-001")
+          ?.invoiceDeletedAt,
+    )
+    .toBeNull();
+  await page.goto(`/members/${member.id}?tab=payments`);
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "View invoice", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "Search members, products, and invoices", exact: true })
+    .click();
+  await page.getByRole("combobox").fill("INV-QA-001");
+  await expect(page.getByRole("option").filter({ hasText: "INV-QA-001" })).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const route of [`/members/${member.id}?tab=payments`, "/payments", "/trash"]) {
+    await page.goto(route);
+    await expect(page.locator("main")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      391,
+    );
+  }
+  await page.screenshot({
+    path: test.info().outputPath("invoice-trash-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/payments");
+  await row.getByRole("button", { name: "Delete invoice INV-QA-001", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Move invoice to Trash", exact: true })
+    .click();
+  await page.getByRole("button", { name: "View in Trash", exact: true }).last().click();
+  await receipt.getByRole("button", { name: "Delete forever", exact: true }).click();
+  const permanent = page.getByRole("dialog");
+  await expect(
+    permanent.getByRole("button", { name: "Delete forever", exact: true }),
+  ).toBeDisabled();
+  await permanent.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(receipt).toBeVisible();
+  await receipt.getByRole("button", { name: "Delete forever", exact: true }).click();
+  await permanent.getByLabel("Type DELETE", { exact: true }).fill("DELETE");
+  await permanent.getByRole("button", { name: "Delete forever", exact: true }).click();
+  await expect(receipt).toHaveCount(0);
+  await expect
+    .poll(() =>
+      Boolean(
+        saved.at(-1)?.payments.find((payment) => payment.invoiceNo === "INV-QA-001")
+          ?.invoicePurgedAt,
+      ),
+    )
+    .toBe(true);
+  await page.reload();
+  await expect(receipt).toHaveCount(0);
+  expect(
+    saved
+      .at(-1)
+      ?.payments.map(
+        ({ invoiceDeletedAt, invoiceDeletedBy, invoicePurgedAt, ...payment }) => payment,
+      ),
+  ).toEqual(state.payments);
+  expect(errors).toEqual([]);
+});
+
+test("paid membership terms confirm deletion, persist in Trash, and restore with receipts intact", async ({
+  page,
+}) => {
+  const saved: GymState[] = [];
+  const errors = await installMockBackend(page, { onWorkspaceSave: (value) => saved.push(value) });
+  await signIn(page);
+  await page.goto(`/members/${member.id}?tab=history`);
+  const card = page.locator("article").filter({ hasText: "QA Three Month Plan" });
+  await card.getByRole("button", { name: "Delete term" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Existing payments and invoices are preserved");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: "Delete term" }).click();
+  await dialog.getByLabel("Reason").fill("Duplicate membership entered by mistake");
+  await dialog.getByRole("button", { name: "Delete term" }).click();
+  await expect(card).toHaveCount(0);
+  await expect
+    .poll(() =>
+      Boolean(saved.at(-1)?.memberships.find((item) => item.id === membership.id)?.deletedAt),
+    )
+    .toBe(true);
+  expect(saved.at(-1)?.payments).toEqual(state.payments);
+  await page.goto(`/members/${member.id}?tab=payments`);
+  await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toContainText(
+    "Membership in Trash · payment retained",
+  );
+  await page
+    .getByRole("row")
+    .filter({ hasText: "INV-QA-001" })
+    .getByRole("button", { name: "View invoice" })
+    .click();
+  await expect(page.getByRole("dialog")).toContainText("Membership Payment Receipt");
+  await page.keyboard.press("Escape");
+  await page.goto("/payments");
+  await expect(page.getByRole("row").filter({ hasText: "INV-QA-001" })).toContainText(
+    "Membership in Trash · payment retained",
+  );
+  await page.goto(`/members/${member.id}?tab=history`);
+  await page.reload();
+  await expect(card).toHaveCount(0);
+  await page.goto("/trash");
+  const trashed = page.locator("article").filter({ hasText: "QA Three Month Plan" });
+  await expect(trashed).toContainText("Duplicate membership entered by mistake");
+  await trashed.getByRole("button", { name: "Restore term" }).click();
+  await expect(trashed).toHaveCount(0);
+  await expect
+    .poll(() => saved.at(-1)?.memberships.find((item) => item.id === membership.id)?.deletedAt)
+    .toBeNull();
+  await page.goto(`/members/${member.id}?tab=history`);
+  await expect(card).toBeVisible();
+  await expect(card.getByText("Due ₹300", { exact: true })).toBeVisible();
+  expect(saved.at(-1)?.payments).toEqual(state.payments);
+  await page.goto(`/members/${member.id}?tab=payments`);
+  await expect(page.getByText("Membership in Trash · payment retained")).toHaveCount(0);
+  await page.goto(`/members/${member.id}?tab=history`);
+  await page.reload();
+  await expect(card).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("correct or remove unpaid membership terms while protecting paid receipts", async ({
   page,
 }) => {
   test.setTimeout(60_000);
-  const savedWorkspaces: typeof state[] = [];
-  const loadedWorkspaces: typeof state[] = [];
+  const savedWorkspaces: (typeof state)[] = [];
+  const loadedWorkspaces: (typeof state)[] = [];
   const auditEvents: AuditEventRequest[] = [];
   const errors = await installMockBackend(page, {
     onWorkspaceLoad: (loadedState) => loadedWorkspaces.push(loadedState),
@@ -792,7 +1066,7 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
     const unpaidCard = page.locator("article").filter({ hasText: "QA Monthly Plan" });
     await expect(paidCard).toContainText("This term has payment history");
     await expect(paidCard.getByRole("button", { name: "Correct term" })).toHaveCount(0);
-    await expect(paidCard.getByRole("button", { name: "Delete term" })).toBeDisabled();
+    await expect(paidCard.getByRole("button", { name: "Delete term" })).toBeEnabled();
     await expect(unpaidCard.getByRole("button", { name: "Correct term" })).toBeVisible();
     await expect(unpaidCard.getByRole("button", { name: "Delete term" })).toBeEnabled();
     await page.evaluate(() => document.fonts.ready);
@@ -820,7 +1094,9 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
   await page.getByRole("option", { name: /QA Annual Plan/ }).click();
   await expect(correctionDialog).toContainText("Corrected plan price");
   await expect(correctionDialog).toContainText("₹1,200");
-  await correctionDialog.getByLabel("Reason for correction").fill("Member was assigned the wrong plan");
+  await correctionDialog
+    .getByLabel("Reason for correction")
+    .fill("Member was assigned the wrong plan");
   await page.screenshot({
     path: path.join(evidenceDir, "membership-correction-dialog-desktop.png"),
     animations: "disabled",
@@ -840,7 +1116,9 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
       width: 1440,
       height: 1000,
       documentWidth: await page.evaluate(() => document.documentElement.scrollWidth),
-      dialogWidth: await correctionDialog.evaluate((element) => element.getBoundingClientRect().width),
+      dialogWidth: await correctionDialog.evaluate(
+        (element) => element.getBoundingClientRect().width,
+      ),
       dialogScrollHeight: await correctionDialog.evaluate((element) => element.scrollHeight),
       dialogClientHeight: await correctionDialog.evaluate((element) => element.clientHeight),
       saveActionReachable: true,
@@ -911,7 +1189,13 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
   await expect(correctedCard).toContainText("01 Jan 26 → 01 Jan 27");
 
   await expect
-    .poll(() => savedWorkspaces.at(-1)?.memberships.some((item) => item.id === unpaidMembership.id && item.planId === "receipt-plan-annual"))
+    .poll(() =>
+      savedWorkspaces
+        .at(-1)
+        ?.memberships.some(
+          (item) => item.id === unpaidMembership.id && item.planId === "receipt-plan-annual",
+        ),
+    )
     .toBe(true);
   const correctedPersistedState = savedWorkspaces.at(-1);
   const correctedPersistedTerm = correctedPersistedState?.memberships.find(
@@ -945,11 +1229,15 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
   await page.reload();
   await expect(page.locator("article").filter({ hasText: "QA Annual Plan" })).toBeVisible();
   await expect
-    .poll(() => loadedWorkspaces.at(-1)?.memberships.find((item) => item.id === unpaidMembership.id)?.planId)
+    .poll(
+      () =>
+        loadedWorkspaces.at(-1)?.memberships.find((item) => item.id === unpaidMembership.id)
+          ?.planId,
+    )
     .toBe("receipt-plan-annual");
-  const reloadedCorrectedTermId = loadedWorkspaces.at(-1)?.memberships.find(
-    (item) => item.planId === "receipt-plan-annual",
-  )?.id;
+  const reloadedCorrectedTermId = loadedWorkspaces
+    .at(-1)
+    ?.memberships.find((item) => item.planId === "receipt-plan-annual")?.id;
   expect(reloadedCorrectedTermId).toBe(unpaidMembership.id);
   const receiptAfterCorrection = await capturePaidReceipt(page, evidenceDir, "after-correction");
   expect(receiptAfterCorrection.rowText).toBe(receiptBeforeCorrection.rowText);
@@ -973,9 +1261,15 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await correctedTermCard.getByRole("button", { name: "Delete term" }).click();
     const cancelDialog = page.getByRole("dialog");
-    await expect(cancelDialog.getByRole("heading", { name: "Delete membership term?" })).toBeVisible();
-    const dialogWidth = await cancelDialog.evaluate((element) => element.getBoundingClientRect().width);
-    const dialogHeight = await cancelDialog.evaluate((element) => element.getBoundingClientRect().height);
+    await expect(
+      cancelDialog.getByRole("heading", { name: "Delete membership term?" }),
+    ).toBeVisible();
+    const dialogWidth = await cancelDialog.evaluate(
+      (element) => element.getBoundingClientRect().width,
+    );
+    const dialogHeight = await cancelDialog.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
     expect(dialogWidth).toBeLessThanOrEqual(viewport.width);
     expect(dialogHeight).toBeLessThanOrEqual(viewport.height);
     const reasonInput = cancelDialog.getByLabel("Reason");
@@ -1023,16 +1317,26 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
   await expect(voidDialog.getByRole("heading", { name: "Delete membership term?" })).toBeVisible();
   await voidDialog.getByLabel("Reason").fill("Duplicate term created by mistake");
   await voidDialog.getByRole("button", { name: "Delete term" }).click();
-  await expect(page.getByText("Unpaid membership term deleted; the action was recorded.")).toBeVisible();
+  await expect(
+    page.getByText("Membership term moved to Trash. You can restore it there."),
+  ).toBeVisible();
   await expect(page.locator("article").filter({ hasText: "QA Annual Plan" })).toHaveCount(0);
 
   await expect
-    .poll(() => savedWorkspaces.at(-1)?.memberships.some((item) => item.id === unpaidMembership.id))
+    .poll(() =>
+      savedWorkspaces
+        .at(-1)
+        ?.memberships.some((item) => item.id === unpaidMembership.id && !item.deletedAt),
+    )
     .toBe(false);
   const removedPersistedState = savedWorkspaces.at(-1);
   const removedTermHadNoPayments =
-    !removedPersistedState?.memberships.some((item) => item.id === unpaidMembership.id) &&
-    !removedPersistedState?.payments.some((payment) => payment.membershipId === unpaidMembership.id);
+    !removedPersistedState?.memberships.some(
+      (item) => item.id === unpaidMembership.id && !item.deletedAt,
+    ) &&
+    !removedPersistedState?.payments.some(
+      (payment) => payment.membershipId === unpaidMembership.id,
+    );
   expect(removedTermHadNoPayments).toBe(true);
   expect(
     removedPersistedState?.payments.filter((payment) => payment.membershipId === membership.id),
@@ -1049,7 +1353,11 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
   await page.reload();
   await expect(page.locator("article").filter({ hasText: "QA Annual Plan" })).toHaveCount(0);
   await expect
-    .poll(() => loadedWorkspaces.at(-1)?.memberships.some((item) => item.id === unpaidMembership.id))
+    .poll(() =>
+      loadedWorkspaces
+        .at(-1)
+        ?.memberships.some((item) => item.id === unpaidMembership.id && !item.deletedAt),
+    )
     .toBe(false);
 
   const receiptAfterRemoval = await capturePaidReceipt(page, evidenceDir, "after-removal");
@@ -1078,7 +1386,9 @@ test("correct or remove unpaid membership terms while protecting paid receipts",
           receiptAfterRemoval.invoiceText === receiptBeforeCorrection.invoiceText,
         paidPaymentRowsExactlyUnchangedAfterCorrectionAndRemoval:
           JSON.stringify(
-            removedPersistedState?.payments.filter((payment) => payment.membershipId === membership.id),
+            removedPersistedState?.payments.filter(
+              (payment) => payment.membershipId === membership.id,
+            ),
           ) === JSON.stringify(paidPaymentBaseline),
         correctionAuditRecorded: auditEvents.some(
           (event) =>

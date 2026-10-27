@@ -275,6 +275,8 @@ async function installMockBackend(page: Page, referenceDate = new Date()) {
     if (pathname.endsWith("/auth/v1/user")) return json(route, qaOwner);
     if (pathname.endsWith("/auth/v1/logout")) return route.fulfill({ status: 204, body: "" });
     if (pathname.endsWith("/rest/v1/gym_users")) return json(route, []);
+    if (pathname.endsWith("/functions/v1/staff-receptionist"))
+      return json(route, { account: null });
     if (pathname.endsWith("/rest/v1/rpc/get_current_gym_context")) return json(route, gymContext);
     if (pathname.endsWith("/rest/v1/rpc/load_current_gym_workspace")) {
       return json(route, { ...gymContext, state: data.state, revision: data.revision });
@@ -394,9 +396,13 @@ test("reports period selectors, custom range, print, CSV, and responsive states"
   ).toBeVisible();
   await expect(mobileDetails).toContainText("Whey Protein");
   await expect(mobileDetails).toContainText("Membership dues collected");
-  const mobileDocumentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-  const mobileViewportWidth = await page.evaluate(() => window.innerWidth);
-  const mobileOverflowDiagnostics = await page.evaluate(() => {
+  const mobileLayout = await page.evaluate(async () => {
+    // A viewport resize can update the document and responsive charts across
+    // separate animation frames. Sample after layout settles and keep the
+    // assertion and its diagnostics in one snapshot.
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
     const elements = Array.from(document.querySelectorAll<HTMLElement>("html, body, body *"))
       .map((element) => {
         const rect = element.getBoundingClientRect();
@@ -434,9 +440,9 @@ test("reports period selectors, custom range, print, CSV, and responsive states"
     fullPage: true,
   });
   expect(
-    mobileDocumentWidth,
-    `daily collection details should fit a mobile viewport; diagnostics: ${JSON.stringify(mobileOverflowDiagnostics)}`,
-  ).toBeLessThanOrEqual(mobileViewportWidth + 1);
+    mobileLayout.document.scrollWidth,
+    `daily collection details should fit a mobile viewport; diagnostics: ${JSON.stringify(mobileLayout)}`,
+  ).toBeLessThanOrEqual(mobileLayout.viewportWidth + 1);
   await page.setViewportSize({ width: 1440, height: 1000 });
   const dailyDownloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export CSV" }).click();
@@ -747,7 +753,9 @@ test("daily collection time window filters receipts, due payments and product sa
       purpose: "membership_balance",
       amount: 125,
       method: "cash",
-      date: `${today}T09:15:00`,
+      // Keep fixtures independent of the runner's local timezone. This represents
+      // the same India-local instant used by the original developer machine.
+      date: `${today}T09:15:00+05:30`,
       note: "Morning balance payment",
     },
     {
@@ -758,7 +766,7 @@ test("daily collection time window filters receipts, due payments and product sa
       kind: "product",
       amount: 180,
       method: "cash",
-      date: `${today}T10:30:00`,
+      date: `${today}T10:30:00+05:30`,
       note: "Morning Snack sale",
     },
   );
@@ -774,7 +782,7 @@ test("daily collection time window filters receipts, due payments and product sa
     paid: 180,
     buyer: "Anita Reports QA",
     memberId: "reports-member-1",
-    date: `${today}T10:30:00`,
+    date: `${today}T10:30:00+05:30`,
   });
 
   await signIn(page);

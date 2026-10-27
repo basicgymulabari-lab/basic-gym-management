@@ -146,12 +146,24 @@ async function installSyntheticSupabase(page: Page) {
     if (pathname.startsWith("/rest/v1/")) return json(route, []);
     if (pathname.endsWith("/functions/v1/staff-receptionist")) {
       const body = route.request().postDataJSON() as {
+        action?: string;
         enabled: boolean;
         name: string;
         email: string;
         password?: string;
         permissions: Record<string, boolean>;
       };
+      if (body.action === "read")
+        return json(route, {
+          account: workspace.receptionist
+            ? {
+                name: workspace.receptionist.name,
+                email: workspace.receptionist.email,
+                enabled: workspace.receptionist.enabled,
+                permissions: workspace.receptionist.permissions,
+              }
+            : null,
+        });
       workspace.receptionist = {
         enabled: body.enabled,
         name: body.name,
@@ -383,7 +395,7 @@ test("captures every discovered application route at desktop, tablet, and mobile
           categorySectors.first(),
           "the category distribution chart must render at the initial desktop viewport",
         ).toBeVisible();
-        expect(await categorySectors.count()).toBeGreaterThan(0);
+        await expect.poll(() => categorySectors.count()).toBeGreaterThan(0);
         await waitForStableSvgGeometry(page, ".recharts-pie .recharts-sector");
         result.categoryChartVisibleAfterMs = Date.now() - routeOpenedAt;
         result.categoryChartSettled = true;
@@ -767,13 +779,23 @@ test("captures every discovered application route at desktop, tablet, and mobile
         }
         if (route.name === "trash" && viewport.name === "mobile") {
           const emptyStates = page.locator("section.surface-panel .border-dashed");
-          await expect(emptyStates).toHaveCount(5);
+          await expect(emptyStates).toHaveCount(7);
+          await expect(
+            page.getByRole("heading", { name: "Deleted Invoices", exact: true }),
+          ).toBeVisible();
+          await expect(
+            page.getByRole("heading", { name: "Deleted Membership Terms", exact: true }),
+          ).toBeVisible();
           await expect(
             page.getByRole("heading", { name: "Deleted Members", exact: true }),
           ).toBeVisible();
           for (const emptyState of await emptyStates.all()) {
             const bounds = await emptyState.boundingBox();
-            expect(bounds?.height ?? Number.POSITIVE_INFINITY).toBeLessThan(90);
+            const text = (await emptyState.innerText()).replace(/\s+/g, " ").trim();
+            expect(
+              bounds?.height ?? Number.POSITIVE_INFINITY,
+              `Trash empty state should stay compact while allowing wrapped hint text: ${text}`,
+            ).toBeLessThan(120);
           }
         }
         if (route.name === "payments" && viewport.name === "tablet") {
@@ -856,7 +878,7 @@ test("captures every discovered application route at desktop, tablet, and mobile
             categorySectors.first(),
             `category distribution chart should be visible at ${viewport.name}`,
           ).toBeVisible();
-          expect(await categorySectors.count()).toBeGreaterThan(0);
+          await expect.poll(() => categorySectors.count()).toBeGreaterThan(0);
           await waitForStableSvgGeometry(page, ".recharts-pie .recharts-sector");
         }
         if (route.name === "notifications" && viewport.name === "tablet") {
@@ -1981,6 +2003,19 @@ test("membership summary cards open their matching plans and roster filters", as
   await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
 
   await page.goto("/memberships");
+  await page.getByRole("tab", { name: /^Active plans \(/ }).click();
+  await expect(page.getByRole("tab", { name: /^Active plans \(/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.getByRole("tabpanel").getByText("FROZEN", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("tabpanel").getByText("EXPIRED", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("tabpanel").getByText("UNASSIGNED", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("textbox", { name: "Search membership list by member name, phone or email" })
+    .fill("no-such-member-987654");
+  await expect(page.getByRole("tabpanel")).toContainText("No matching members");
+  await page.getByRole("button", { name: "Clear membership search" }).click();
   const plansSection = page.locator("#membership-plans-section");
   await expect(plansSection.getByRole("button", { name: /Show .* plans/ })).toBeVisible();
   await page.getByRole("button", { name: "View active membership plans" }).click();

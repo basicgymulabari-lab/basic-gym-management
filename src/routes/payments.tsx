@@ -1,11 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
-import { zodValidator, fallback } from "@tanstack/zod-adapter";
-import { z } from "zod";
 import { Plus, Search, Printer, Wallet, AlertTriangle, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { downloadCsv } from "@/lib/gym/csv";
 import { AppShell } from "@/components/app/AppShell";
+import { MembershipTrashNotice } from "@/components/app/MembershipTrashNotice";
+import { InvoiceTrashButton } from "@/components/app/InvoiceTrashButton";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
 import { StatusBadge } from "@/components/app/StatCard";
 import { TablePager } from "@/components/app/TablePager";
@@ -35,6 +35,7 @@ import {
   outstandingFor,
   paidFor,
   paymentsWithNames,
+  isPaymentInvoiceVisible,
   planOf,
   salePaid,
   salesFor,
@@ -46,14 +47,15 @@ import {
 import type { Member, PaymentMethod } from "@/lib/gym/types";
 import { addMoney, isPositiveMoneyAmount, sumMoney } from "@/lib/gym/money";
 
-const searchSchema = z.object({
-  tab: fallback(z.string(), "collected").default("collected"),
-  q: fallback(z.string(), "").default(""),
-  page: fallback(z.number().int(), 1).default(1),
+const parsePaymentsSearch = (search: Record<string, unknown>) => ({
+  tab: typeof search.tab === "string" ? search.tab : "collected",
+  q: typeof search.q === "string" ? search.q : "",
+  page:
+    typeof search.page === "number" && Number.isInteger(search.page) ? search.page : 1,
 });
 
 export const Route = createFileRoute("/payments")({
-  validateSearch: zodValidator(searchSchema),
+  validateSearch: parsePaymentsSearch,
   head: () => ({
     meta: [
       { title: "Payments — IRONVAULT Gym Management" },
@@ -125,6 +127,7 @@ function PaymentsPage() {
     () =>
       state
         ? paymentsWithNames(state).filter((p) => {
+            if (!isPaymentInvoiceVisible(p)) return false;
             const member = memberOf(state, p.memberId);
             return (
               !q ||
@@ -155,6 +158,12 @@ function PaymentsPage() {
   }, [state, q]);
 
   if (!state) return null;
+  const deletedMembershipIds = new Set(
+    state.memberships.filter((term) => term.deletedAt || term.purgedAt).map((term) => term.id),
+  );
+  const purgedMembershipIds = new Set(
+    state.memberships.filter((term) => term.purgedAt).map((term) => term.id),
+  );
   const cur = state.settings.currency;
   const setSearch = (patch: Record<string, unknown>) =>
     navigate({ search: (prev: Record<string, unknown>) => ({ ...prev, ...patch }) as never });
@@ -245,7 +254,7 @@ function PaymentsPage() {
           <Metric
             icon={ReceiptText}
             label="Invoices"
-            value={String(state.payments.length)}
+            value={String(state.payments.filter(isPaymentInvoiceVisible).length)}
             tone="gold"
           />
         </div>
@@ -347,7 +356,14 @@ function PaymentsPage() {
                     <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-border/60 pt-3 text-sm">
                       <div>
                         <dt className="text-xs text-muted-foreground">Type</dt>
-                        <dd className="capitalize">{p.kind}</dd>
+                        <dd className="capitalize">
+                          {p.kind}
+                          {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
+                            <MembershipTrashNotice
+                              permanentlyRemoved={purgedMembershipIds.has(p.membershipId)}
+                            />
+                          )}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-xs text-muted-foreground">Method</dt>
@@ -367,6 +383,7 @@ function PaymentsPage() {
                     >
                       <Printer className="mr-2 h-4 w-4" /> View invoice
                     </Button>
+                    <InvoiceTrashButton payment={p} />
                   </article>
                 ))}
               </div>
@@ -390,7 +407,14 @@ function PaymentsPage() {
                         <td className="py-3">
                           <PaymentMemberName member={memberForPayment(p)} label={p.who} />
                         </td>
-                        <td className="py-3 capitalize text-muted-foreground">{p.kind}</td>
+                        <td className="py-3 capitalize text-muted-foreground">
+                          {p.kind}
+                          {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
+                            <MembershipTrashNotice
+                              permanentlyRemoved={purgedMembershipIds.has(p.membershipId)}
+                            />
+                          )}
+                        </td>
                         <td className="py-3 capitalize text-muted-foreground">{p.method}</td>
                         <td className="py-3 text-muted-foreground">{shortDateTime(p.date)}</td>
                         <td className="py-3 text-right font-medium">{money(p.amount, cur)}</td>
@@ -404,6 +428,7 @@ function PaymentsPage() {
                           >
                             <Printer className="h-4 w-4" />
                           </Button>
+                          <InvoiceTrashButton payment={p} />
                         </td>
                       </tr>
                     ))}
@@ -570,7 +595,10 @@ function Metric({
       </span>
       <div className="min-w-0">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-        <p data-testid="payments-metric-value" className="whitespace-nowrap font-display text-xl xl:text-2xl">
+        <p
+          data-testid="payments-metric-value"
+          className="whitespace-nowrap font-display text-xl xl:text-2xl"
+        >
           {value}
         </p>
       </div>
@@ -741,8 +769,7 @@ function PaymentDialog({
                 if (payerType === "member") {
                   if (!memberId) return toast.error("Select a member");
                   if (due <= 0) return toast.error("This member has no amount due");
-                  if (value > due)
-                    return toast.error("Payment cannot exceed the due amount");
+                  if (value > due) return toast.error("Payment cannot exceed the due amount");
                 } else {
                   if (customerName.trim().length < 2)
                     return toast.error("Enter the customer's name");

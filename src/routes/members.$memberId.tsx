@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
+import { MembershipTrashNotice } from "@/components/app/MembershipTrashNotice";
+import { InvoiceTrashButton } from "@/components/app/InvoiceTrashButton";
 import { AppDatePicker } from "@/components/app/AppDatePicker";
 import { AttendanceDeleteDialog } from "@/components/app/AttendanceDeleteDialog";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
@@ -55,6 +57,7 @@ import {
 } from "@/lib/gym/store";
 import {
   currentMembership,
+  isPaymentInvoiceVisible,
   dueFor,
   isWalkIn,
   membershipHistory,
@@ -111,8 +114,7 @@ export const Route = createFileRoute("/members/$memberId")({
       { property: "og:title", content: "Member Profile — IRONVAULT Gym Management" },
       {
         property: "og:description",
-        content:
-          "Attendance, membership history, dues and trainer progress notes in one profile.",
+        content: "Attendance, membership history, dues and trainer progress notes in one profile.",
       },
     ],
   }),
@@ -149,6 +151,12 @@ function MemberProfile() {
   const member = state?.members.find((m) => m.id === memberId);
 
   if (!state) return null;
+  const deletedMembershipIds = new Set(
+    state.memberships.filter((term) => term.deletedAt || term.purgedAt).map((term) => term.id),
+  );
+  const purgedMembershipIds = new Set(
+    state.memberships.filter((term) => term.purgedAt).map((term) => term.id),
+  );
   if (!member) {
     return (
       <EmptyState title="Member not found" hint="This record may have been permanently deleted." />
@@ -160,7 +168,9 @@ function MemberProfile() {
   const status = walkIn ? "walk-in" : statusOf(state, member.id);
   const ms = currentMembership(state, member.id);
   const due = walkIn ? outstandingFor(state, member.id) : dueFor(state, member.id);
-  const payments = state.payments.filter((p) => p.memberId === member.id);
+  const payments = state.payments.filter(
+    (p) => p.memberId === member.id && isPaymentInvoiceVisible(p),
+  );
   const purchases = salesFor(state, member.id);
   const allAttendanceRecords = (state.attendance ?? [])
     .filter((record) => record.memberId === member.id && !record.deletedAt)
@@ -189,7 +199,10 @@ function MemberProfile() {
   return (
     <>
       <Button variant="ghost" size="sm" className="mb-3 -ml-2 text-muted-foreground" asChild>
-        <Link to="/members" search={{ filter: "all", q: "", new: false }}>
+        <Link
+          to="/members"
+          search={{ filter: "all", q: "", shift: "all", page: 1, new: false }}
+        >
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to members
         </Link>
       </Button>
@@ -331,8 +344,8 @@ function MemberProfile() {
                     const canCorrect = paid === 0 && !h.frozen;
                     const changeBlockedReason =
                       paid > 0
-                        ? "This term has payment history. To protect issued receipts, it can’t be edited or deleted here."
-                        : "Unfreeze this term before editing or deleting it.";
+                        ? "This term has payment history and cannot be edited. Moving it to Trash preserves its payments and receipts."
+                        : "Unfreeze this term before editing it. It can still be moved to Trash.";
                     return (
                       <article
                         key={h.id}
@@ -392,7 +405,6 @@ function MemberProfile() {
                           )}
                           <MembershipHistoryActions
                             canCorrect={canCorrect}
-                            deleteBlockedReason={canCorrect ? undefined : changeBlockedReason}
                             onEdit={() => setEditingMembership(h)}
                             onVoid={() => setVoidingMembership(h)}
                           />
@@ -549,6 +561,11 @@ function MemberProfile() {
                             <p className="break-all font-medium text-gold">{p.invoiceNo}</p>
                             <p className="mt-1 break-words text-sm text-muted-foreground">
                               {p.note || "Membership payment"}
+                              {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
+                                <MembershipTrashNotice
+                                  permanentlyRemoved={purgedMembershipIds.has(p.membershipId)}
+                                />
+                              )}
                             </p>
                           </div>
                           <p className="shrink-0 text-right font-medium">{money(p.amount, cur)}</p>
@@ -565,6 +582,7 @@ function MemberProfile() {
                           >
                             <Eye className="mr-1.5 h-4 w-4" /> View invoice
                           </Button>
+                          <InvoiceTrashButton payment={p} />
                         </div>
                       </article>
                     ))}
@@ -585,7 +603,14 @@ function MemberProfile() {
                           <tr key={p.id} className="border-b border-border/50">
                             <td className="py-3 font-medium text-gold">{p.invoiceNo}</td>
                             <td className="py-3 text-muted-foreground">{shortDateTime(p.date)}</td>
-                            <td className="py-3 text-muted-foreground">{p.note}</td>
+                            <td className="py-3 text-muted-foreground">
+                              {p.note}
+                              {p.membershipId && deletedMembershipIds.has(p.membershipId) && (
+                                <MembershipTrashNotice
+                                  permanentlyRemoved={purgedMembershipIds.has(p.membershipId)}
+                                />
+                              )}
+                            </td>
                             <td className="py-3 text-right">{money(p.amount, cur)}</td>
                             <td className="py-3 text-right">
                               <Button
@@ -599,6 +624,7 @@ function MemberProfile() {
                               >
                                 <Eye className="h-4 w-4" />
                               </Button>
+                              <InvoiceTrashButton payment={p} />
                             </td>
                           </tr>
                         ))}
@@ -1026,15 +1052,7 @@ function dialablePhoneHref(phone: string) {
   return `tel:${dialTarget}`;
 }
 
-function Info({
-  icon: Icon,
-  value,
-  href,
-}: {
-  icon: typeof Mail;
-  value: string;
-  href?: string;
-}) {
+function Info({ icon: Icon, value, href }: { icon: typeof Mail; value: string; href?: string }) {
   return (
     <div className="flex items-start gap-3">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
@@ -1082,7 +1100,10 @@ export function RenewDialog({
   const [paid, setPaid] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const latestMembership = state?.memberships
-    .filter((membership) => membership.memberId === memberId)
+    .filter(
+      (membership) =>
+        membership.memberId === memberId && !membership.deletedAt && !membership.purgedAt,
+    )
     .sort((a, b) => +new Date(b.endDate) - +new Date(a.endDate))[0];
   const latestEndDate = latestMembership ? new Date(latestMembership.endDate) : null;
   const suggestedStartDate =
@@ -1378,12 +1399,10 @@ function NoteDialog({
 
 function MembershipHistoryActions({
   canCorrect,
-  deleteBlockedReason,
   onEdit,
   onVoid,
 }: {
   canCorrect: boolean;
-  deleteBlockedReason?: string;
   onEdit: () => void;
   onVoid: () => void;
 }) {
@@ -1399,8 +1418,7 @@ function MembershipHistoryActions({
         variant="ghost"
         className="text-destructive"
         onClick={onVoid}
-        disabled={!canCorrect}
-        title={deleteBlockedReason}
+        title="Move this membership term to Trash"
         aria-label="Delete term"
       >
         <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete term
@@ -1608,9 +1626,9 @@ function VoidMembershipDialog({
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            “{planName}” has no linked payments. Deleting it removes the term from this member’s
-            history; a reason is retained in activity history. This cannot remove or alter an
-            invoice, and the term cannot be restored from Trash.
+            Are you sure you want to move “{planName}” to Trash? It will no longer count toward this
+            member’s membership or dues. Existing payments and invoices are preserved. You can
+            restore the term from Trash.
           </p>
           <div className="space-y-2">
             <Label htmlFor="membership-void-reason">Reason</Label>
@@ -1640,7 +1658,7 @@ function VoidMembershipDialog({
                   );
                   return;
                 }
-                toast.success("Unpaid membership term deleted; the action was recorded.");
+                toast.success("Membership term moved to Trash. You can restore it there.");
                 onClose();
               }}
             >

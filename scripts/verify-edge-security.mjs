@@ -5,6 +5,7 @@ const { HttpError, corsHeaders, parseJson, readLimitedBodyText } =
   await import("../supabase/functions/_shared/http.ts");
 const { addCspNonces } = await import("../src/lib/security/csp.ts");
 const { stripeRefundEntries } = await import("../supabase/functions/_shared/stripe-refunds.ts");
+const { buildChartCss } = await import("../src/lib/security/chart-css.ts");
 
 const billingSource = await readFile(
   new URL("../supabase/functions/_shared/billing.ts", import.meta.url),
@@ -32,8 +33,23 @@ const membershipPlanValidationMigration = await readFile(
   ),
   "utf8",
 );
+const internalApiPrivilegesMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20261026100000_revoke_internal_api_privileges.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const internalApiPrivilegesAssertions = await readFile(
+  new URL("../supabase/tests/internal_api_privileges.sql", import.meta.url),
+  "utf8",
+);
 const tenantIsolationTests = await readFile(
   new URL("../supabase/tests/tenant_isolation.sql", import.meta.url),
+  "utf8",
+);
+const tenantIsolationAssertionTests = await readFile(
+  new URL("../supabase/tests/tenant_isolation_assert.sql", import.meta.url),
   "utf8",
 );
 assert.deepEqual(
@@ -61,6 +77,50 @@ assert.deepEqual(
   stripeRefundEntries({ amount_refunded: 0, refunds: { data: [] } }),
   [],
   "charges without refunds must not create refund rows",
+);
+const chartCss = buildChartCss("chart-safe", {
+  revenue: { color: "oklch(0.7 0.2 80)" },
+  maliciousKey: { color: "red}</style><script>alert(1)</script>" },
+  "bad];script": { color: "red" },
+  injectedColor: { color: "red; background: url(https://attacker.invalid/collect)" },
+});
+assert.match(chartCss, /--color-revenue: oklch\(0\.7 0\.2 80\);/);
+assert.doesNotMatch(chartCss, /<script|attacker\.invalid|--color-maliciousKey|bad\];script/);
+assert.equal(
+  buildChartCss("chart-safe] <script>alert(1)</script>", { revenue: { color: "red" } }),
+  "",
+  "chart CSS selectors must reject HTML/CSS-injected identifiers",
+);
+for (const signature of [
+  "public.iv_validate_workspace(jsonb)",
+  "public.iv_validate_private_asset_references(jsonb)",
+  "public.iv_validate_private_assets_trigger()",
+  "public.normalize_subscription_entitlement()",
+  "public.set_updated_at()",
+]) {
+  assert.ok(
+    internalApiPrivilegesMigration.includes(`on function ${signature}`),
+    `internal helper ${signature} must have explicit API execute revocation`,
+  );
+}
+assert.match(
+  internalApiPrivilegesMigration,
+  /revoke all on table public\.audit_logs, public\.gym_users, public\.gyms,[\s\S]*?from anon;/,
+  "anonymous access to sensitive gym metadata tables must be revoked",
+);
+assert.match(
+  internalApiPrivilegesMigration,
+  /revoke maintain on table public\.audit_logs, public\.gym_users, public\.gyms,[\s\S]*?from anon, authenticated;/,
+  "API roles must not receive database maintenance privileges on gym metadata tables",
+);
+assert.ok(
+  internalApiPrivilegesAssertions.includes("has_function_privilege('service_role', v_function, 'EXECUTE')") &&
+    internalApiPrivilegesAssertions.includes("has_table_privilege('anon', v_table, 'REFERENCES')") &&
+    internalApiPrivilegesAssertions.includes("has_table_privilege('anon', v_table, 'TRIGGER')") &&
+    internalApiPrivilegesAssertions.includes("has_table_privilege('authenticated', v_table, 'MAINTAIN')") &&
+    internalApiPrivilegesAssertions.includes("has_table_privilege('service_role', v_table, 'DELETE')") &&
+    internalApiPrivilegesAssertions.includes("relrowsecurity"),
+  "SQL regression assertions must cover internal service-role grants, trusted service-role CRUD, all anonymous table grants, authenticated MAINTAIN, and RLS state",
 );
 assert.ok(
   stripeWebhookSource.includes('typeof object.payment_intent === "string"'),
@@ -129,6 +189,23 @@ assert.match(
   tenantIsolationTests,
   /INVALID_PLAN_DATA[\s\S]*?receptionists cannot persist invalid membership plan prices/,
   "tenant SQL regression tests must cover invalid plan prices submitted by receptionists",
+);
+assert.ok(
+  [
+    "owner A cannot read Gym B through the gyms table",
+    "owner A cannot read Gym B memberships through the gym_users table",
+    "owner A cannot read Gym B subscription through the table",
+    "owner A cannot read Gym B audit entries through the table",
+    "owner A cannot update Gym B through direct table access",
+    "owner A cannot delete Gym B memberships through direct table access",
+    "owner A workspace RPC saves only the tenant resolved from auth.uid()",
+    "owner B remains isolated after owner A saves a workspace",
+  ].every((assertion) => tenantIsolationTests.includes(assertion)) &&
+    tenantIsolationTests.includes("authenticated clients cannot directly execute the private-asset validator") &&
+    tenantIsolationTests.includes("workspace trigger still rejects inline member photos") &&
+    tenantIsolationAssertionTests.includes("perform public.save_current_gym_workspace") &&
+    !tenantIsolationAssertionTests.includes("perform public.iv_validate_private_asset_references"),
+  "tenant regression tests must cover cross-gym direct access, tenant-bound RPC writes, and private helper access through supported workflow only",
 );
 const plannedSqlAssertions = Number(tenantIsolationTests.match(/select plan\((\d+)\);/)?.[1]);
 const actualSqlAssertions = [

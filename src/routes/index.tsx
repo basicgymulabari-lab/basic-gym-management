@@ -137,11 +137,23 @@ function DeferredDashboardChart({ children, height }: { children: ReactNode; hei
   return (
     <div ref={containerRef} style={{ minHeight: height }}>
       {shouldLoad ? (
-        <Suspense fallback={<div aria-hidden="true" className="animate-pulse rounded-md bg-secondary/30" style={{ height }} />}>
+        <Suspense
+          fallback={
+            <div
+              aria-hidden="true"
+              className="animate-pulse rounded-md bg-secondary/30"
+              style={{ height }}
+            />
+          }
+        >
           {children}
         </Suspense>
       ) : (
-        <div aria-hidden="true" className="animate-pulse rounded-md bg-secondary/30" style={{ height }} />
+        <div
+          aria-hidden="true"
+          className="animate-pulse rounded-md bg-secondary/30"
+          style={{ height }}
+        />
       )}
     </div>
   );
@@ -157,8 +169,9 @@ function Dashboard() {
     const activeMemberIds = new Set(activeMembers(state).map((member) => member.id));
     // Soft-deleted members remain in the recoverable Trash for 30 days, but their
     // memberships must not inflate current-roster lifecycle or balance dashboards.
-    const liveMemberships = state.memberships.filter((membership) =>
-      activeMemberIds.has(membership.memberId),
+    const liveMemberships = state.memberships.filter(
+      (membership) =>
+        !membership.deletedAt && !membership.purgedAt && activeMemberIds.has(membership.memberId),
     );
     // Pre-aggregate dashboard membership data once. Re-filtering the full
     // payment roster for every membership made this page quadratic on gyms
@@ -217,10 +230,7 @@ function Dashboard() {
       ...liveMemberships.flatMap((membership) => {
         const due = Math.max(
           0,
-          subtractMoney(
-            membershipPayable(membership),
-            paidByMembershipId.get(membership.id) ?? 0,
-          ),
+          subtractMoney(membershipPayable(membership), paidByMembershipId.get(membership.id) ?? 0),
         );
         return due > 0 ? [{ due, date: membership.endDate }] : [];
       }),
@@ -248,12 +258,11 @@ function Dashboard() {
     const renewalsThisMonth = monthMemberships.filter((membership) => {
       const firstCreatedAt = earliestMembershipCreatedAtByMemberId.get(membership.memberId);
       return (
-        firstCreatedAt !== undefined &&
-        firstCreatedAt < new Date(membership.createdAt).getTime()
+        firstCreatedAt !== undefined && firstCreatedAt < new Date(membership.createdAt).getTime()
       );
     }).length;
-    const membersWithMemberships = members.filter((member) =>
-      (membershipCountByMemberId.get(member.id) ?? 0) > 0,
+    const membersWithMemberships = members.filter(
+      (member) => (membershipCountByMemberId.get(member.id) ?? 0) > 0,
     ).length;
     const renewedMembers = members.filter(
       (member) => (membershipCountByMemberId.get(member.id) ?? 0) > 1,
@@ -397,7 +406,10 @@ function Dashboard() {
           >
             {(!isReceptionist || session?.permissions?.members) && (
               <Button asChild variant="secondary" className="justify-start">
-                <Link to="/members" search={{ filter: "all", q: "", new: true }}>
+                <Link
+                  to="/members"
+                  search={{ filter: "all", q: "", shift: "all", page: 1, new: true }}
+                >
                   <UserRoundPlus className="mr-2 h-4 w-4 text-gold" /> Add Member
                 </Link>
               </Button>
@@ -589,10 +601,7 @@ function Dashboard() {
       <div className={`mt-6 grid gap-6 ${canViewRevenue ? "xl:grid-cols-3" : "xl:grid-cols-1"}`}>
         {canViewRevenue && (
           <>
-            <Panel
-              title="Financial Overview"
-              description="All-time collected performance"
-            >
+            <Panel title="Financial Overview" description="All-time collected performance">
               <div className="space-y-3">
                 <SummaryMetric
                   label="Collected revenue"
@@ -625,10 +634,7 @@ function Dashboard() {
             </Panel>
 
             {canViewPayments && (
-              <Panel
-                title="Due Aging"
-                description="Outstanding amount by age"
-              >
+              <Panel title="Due Aging" description="Outstanding amount by age">
                 <div className="space-y-4">
                   {data.ageBuckets.map((bucket) => {
                     const max = Math.max(...data.ageBuckets.map((item) => item.amount), 1);
@@ -656,10 +662,7 @@ function Dashboard() {
         )}
 
         {canViewMemberships && (
-          <Panel
-            title="Member Lifecycle"
-            description="Current month and roster health"
-          >
+          <Panel title="Member Lifecycle" description="Current month and roster health">
             <div data-testid="dashboard-lifecycle-grid" className="grid grid-cols-2 gap-3">
               <LifecycleMetric label="New this month" value={data.newThisMonth} />
               <LifecycleMetric label="Renewals" value={data.renewalsThisMonth} />
@@ -675,11 +678,7 @@ function Dashboard() {
         )}
       </div>
 
-      <Panel
-        title="Today’s Summary"
-        description="Activity recorded today"
-        className="mt-6"
-      >
+      <Panel title="Today’s Summary" description="Activity recorded today" className="mt-6">
         <div
           data-testid="dashboard-today-summary-grid"
           className="grid grid-cols-2 gap-4 xl:grid-cols-4"

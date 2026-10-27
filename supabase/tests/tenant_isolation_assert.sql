@@ -310,22 +310,40 @@ begin
 end;
 $$;
 
+-- Exercise the asset validator as an owner. A receptionist cannot submit the
+-- expenses field without permission, so the RPC correctly drops that field
+-- before validation and would not test the inline-attachment guard.
+select set_config('request.jwt.claim.sub', '51000000-0000-0000-0000-000000000001', true);
 do $$
+declare
+  v_payload jsonb;
+  v_tampered jsonb;
 begin
+  v_payload := public.load_current_gym_workspace();
+  v_tampered := jsonb_set(
+    v_payload -> 'state',
+    '{members,0,photo}',
+    '"data:image/png;base64,AAAA"'::jsonb,
+    true
+  );
   begin
-    perform public.iv_validate_private_asset_references(
-      '{"version":1,"members":[{"id":"m1","photo":"data:image/png;base64,AAAA"}],"expenses":[]}'::jsonb
-    );
-    raise exception 'inline member photo was accepted';
+    perform public.save_current_gym_workspace(v_tampered, (v_payload ->> 'revision')::bigint);
+    raise exception 'INLINE_MEMBER_PHOTO_ACCEPTED';
   exception
     when raise_exception then
       if sqlerrm <> 'INLINE_MEMBER_PHOTO_FORBIDDEN' then raise; end if;
   end;
+
+  v_payload := public.load_current_gym_workspace();
+  v_tampered := jsonb_set(
+    v_payload -> 'state',
+    '{expenses,0,attachment}',
+    '{"dataUrl":"data:application/pdf;base64,AAAA"}'::jsonb,
+    true
+  );
   begin
-    perform public.iv_validate_private_asset_references(
-      '{"version":1,"members":[],"expenses":[{"id":"e1","attachment":{"dataUrl":"data:application/pdf;base64,AAAA"}}]}'::jsonb
-    );
-    raise exception 'inline expense attachment was accepted';
+    perform public.save_current_gym_workspace(v_tampered, (v_payload ->> 'revision')::bigint);
+    raise exception 'INLINE_EXPENSE_ATTACHMENT_ACCEPTED';
   exception
     when raise_exception then
       if sqlerrm <> 'INLINE_EXPENSE_ATTACHMENT_FORBIDDEN' then raise; end if;

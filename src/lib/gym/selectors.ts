@@ -125,6 +125,7 @@ function currentMembershipIndex(s: GymState): Map<string, Membership> {
   const currentMembershipByMember = new Map<string, Membership>();
   const latestMembershipEndByMember = new Map<string, number>();
   for (const membership of s.memberships) {
+    if (membership.deletedAt || membership.purgedAt) continue;
     const endTime = new Date(membership.endDate).getTime();
     const previousEnd = latestMembershipEndByMember.get(membership.memberId);
     if (previousEnd === undefined || endTime > previousEnd) {
@@ -161,6 +162,7 @@ function selectorIndexes(s: GymState): SelectorIndexes {
 
   const membershipDueByMember = new Map<string, number>();
   for (const membership of s.memberships) {
+    if (membership.deletedAt || membership.purgedAt) continue;
     const due = Math.max(
       0,
       subtractMoney(membershipPayable(membership), paymentsByMembership.get(membership.id) ?? 0),
@@ -194,7 +196,7 @@ export function currentMembership(s: GymState, memberId: string): Membership | u
 
 export function membershipHistory(s: GymState, memberId: string) {
   return s.memberships
-    .filter((m) => m.memberId === memberId)
+    .filter((m) => m.memberId === memberId && !m.deletedAt && !m.purgedAt)
     .sort((a, b) => +new Date(b.startDate) - +new Date(a.startDate));
 }
 
@@ -228,7 +230,8 @@ export function membershipRoster(s: GymState): MembershipRosterEntry[] {
       if (ms.frozen) status = "frozen";
       else {
         const left = daysUntil(ms.endDate);
-        status = left < 0 ? "expired" : left <= s.settings.expiryReminderDays ? "expiring" : "active";
+        status =
+          left < 0 ? "expired" : left <= s.settings.expiryReminderDays ? "expiring" : "active";
       }
     }
     return {
@@ -464,6 +467,11 @@ export function paymentsWithNames(s: GymState): Array<Payment & { who: string }>
     }));
 }
 
+/** A permanent receipt removal wins over a concurrent restoration. */
+export function isPaymentInvoiceVisible(payment: Payment) {
+  return !payment.invoiceDeletedAt && !payment.invoicePurgedAt;
+}
+
 /* ---------------- Notifications ---------------- */
 
 export type NotificationCategory = "due" | "expiry" | "birthday" | "inventory" | "system";
@@ -513,7 +521,9 @@ export function buildNotifications(s: GymState): Notification[] {
       .sort((a, b) => b.name.trim().length - a.name.trim().length);
     if (!matches.length) return undefined;
     const longestNameLength = matches[0]!.name.trim().length;
-    const longestMatches = matches.filter((member) => member.name.trim().length === longestNameLength);
+    const longestMatches = matches.filter(
+      (member) => member.name.trim().length === longestNameLength,
+    );
     return longestMatches.length === 1 ? longestMatches[0] : undefined;
   };
 

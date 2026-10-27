@@ -64,7 +64,7 @@ export const Route = createFileRoute("/memberships")({
 });
 
 const MEMBERSHIP_PAGE_SIZE = 25;
-const MEMBERSHIP_TABS = ["all", "expiring", "expired", "frozen", "unassigned"] as const;
+const MEMBERSHIP_TABS = ["all", "active", "expiring", "expired", "frozen", "unassigned"] as const;
 type MembershipTab = (typeof MEMBERSHIP_TABS)[number];
 
 function MembershipsPage() {
@@ -99,6 +99,7 @@ function MembershipsPage() {
   const rosterGroups = useMemo(() => {
     const groups: Record<MembershipTab, typeof rows> = {
       all: [],
+      active: [],
       expiring: [],
       expired: [],
       frozen: [],
@@ -106,6 +107,7 @@ function MembershipsPage() {
     };
     for (const row of rows) {
       if (row.ms) groups.all.push(row);
+      if (row.ms && (row.status === "active" || row.status === "expiring")) groups.active.push(row);
       if (row.status === "expiring") groups.expiring.push(row);
       else if (row.status === "expired" && row.ms) groups.expired.push(row);
       else if (row.status === "frozen") groups.frozen.push(row);
@@ -117,6 +119,7 @@ function MembershipsPage() {
   const searchedGroups = useMemo(() => {
     const groups: Record<MembershipTab, typeof searchedRows> = {
       all: [],
+      active: [],
       expiring: [],
       expired: [],
       frozen: [],
@@ -124,6 +127,7 @@ function MembershipsPage() {
     };
     for (const row of searchedRows) {
       if (row.ms) groups.all.push(row);
+      if (row.ms && (row.status === "active" || row.status === "expiring")) groups.active.push(row);
       if (row.status === "expiring") groups.expiring.push(row);
       else if (row.status === "expired" && row.ms) groups.expired.push(row);
       else if (row.status === "frozen") groups.frozen.push(row);
@@ -148,6 +152,7 @@ function MembershipsPage() {
   const { expiring, expired, frozen, unassigned } = rosterGroups;
   const matchesByTab: Record<MembershipTab, number> = {
     all: searchedGroups.all.length,
+    active: searchedGroups.active.length,
     expiring: searchedGroups.expiring.length,
     expired: searchedGroups.expired.length,
     frozen: searchedGroups.frozen.length,
@@ -334,6 +339,7 @@ function MembershipsPage() {
       >
         <TabsList id="membership-roster" className="mb-4 flex-wrap scroll-mt-4">
           <TabsTrigger value="all">All memberships</TabsTrigger>
+          <TabsTrigger value="active">Active plans ({rosterGroups.active.length})</TabsTrigger>
           <TabsTrigger value="expiring">Renewal reminders ({expiring.length})</TabsTrigger>
           <TabsTrigger value="expired">Expired ({expired.length})</TabsTrigger>
           <TabsTrigger value="frozen">Frozen ({frozen.length})</TabsTrigger>
@@ -380,6 +386,7 @@ function MembershipsPage() {
         {(
           [
             ["all", searchedGroups.all],
+            ["active", searchedGroups.active],
             ["expiring", searchedGroups.expiring],
             ["expired", searchedGroups.expired],
             ["frozen", searchedGroups.frozen],

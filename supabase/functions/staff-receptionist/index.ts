@@ -36,6 +36,31 @@ Deno.serve(async (request) => {
 
   try {
     const { user: owner, membership } = await requireOwner(request);
+    const body = await parseJson<Record<string, unknown>>(request);
+
+    if (body.action === "read") {
+      await consumeRateLimit("staff:receptionist-read", owner.id, 30, 60);
+      const { data: receptionist, error } = await admin
+        .from("gym_users")
+        .select("display_name,email,enabled,permissions")
+        .eq("gym_id", membership.gym_id)
+        .eq("role", "receptionist")
+        .maybeSingle();
+      if (error)
+        throw new HttpError("Could not load the receptionist account.", 502, "STAFF_LOOKUP_FAILED");
+
+      return jsonResponse(request, {
+        account: receptionist
+          ? {
+              enabled: receptionist.enabled,
+              name: receptionist.display_name || "Receptionist",
+              email: receptionist.email,
+              permissions: normalizePermissions(receptionist.permissions),
+            }
+          : null,
+      });
+    }
+
     const { data: gym, error: gymStatusError } = await admin
       .from("gyms")
       .select("account_status")
@@ -72,7 +97,6 @@ Deno.serve(async (request) => {
       );
     }
     await consumeRateLimit("staff:receptionist-update", owner.id, 12, 60);
-    const body = await parseJson<Record<string, unknown>>(request);
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const password = typeof body.password === "string" ? body.password : "";

@@ -8,7 +8,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useGym } from "@/lib/gym/store";
-import { activeMembers, money, shortDate } from "@/lib/gym/selectors";
+import { activeMembers, isPaymentInvoiceVisible, money, shortDate } from "@/lib/gym/selectors";
 
 export function GlobalSearch({
   open,
@@ -73,18 +73,23 @@ export function GlobalSearch({
           ))}
         </CommandGroup>
         <CommandGroup heading="Recent invoices">
-          {state.payments.slice(0, 12).map((p) => (
-            <CommandItem
-              key={p.id}
-              value={`${p.invoiceNo} ${p.note}`}
-              onSelect={() => go(() => navigate({ to: "/payments" }))}
-            >
-              <span className="font-medium">{p.invoiceNo}</span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {money(p.amount, state.settings.currency)} · {shortDate(p.date)}
-              </span>
-            </CommandItem>
-          ))}
+          {state.payments
+            .filter(isPaymentInvoiceVisible)
+            .slice(0, 12)
+            .map((p) => (
+              <CommandItem
+                key={p.id}
+                value={`${p.invoiceNo} ${p.note}`}
+                onSelect={() =>
+                  go(() => navigate({ to: "/payments", search: { tab: "collected", q: "", page: 1 } }))
+                }
+              >
+                <span className="font-medium">{p.invoiceNo}</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {money(p.amount, state.settings.currency)} · {shortDate(p.date)}
+                </span>
+              </CommandItem>
+            ))}
         </CommandGroup>
       </CommandList>
     </CommandDialog>

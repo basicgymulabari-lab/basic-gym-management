@@ -5,7 +5,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(26);
+select plan(36);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at
@@ -53,6 +53,16 @@ insert into public.gym_workspaces (owner_id, gym_id, revision, state) values
     '{"version":1,"auth":{"email":"","passwordHash":""},"staff":{},"settings":{"gymName":"Gym B","adminName":"Owner B"},"members":[],"plans":[],"memberships":[],"payments":[],"products":[{"id":"product-b","name":"B Protein","cost":999,"price":1200,"stock":7}],"sales":[],"activities":[],"expenses":[{"id":"expense-b","title":"Rent B","amount":900}],"inquiries":[],"readNotifications":[],"invoiceSeq":0}'
   );
 
+insert into public.audit_logs (gym_id, user_id, role, action, entity_type, entity_id) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '10000000-0000-0000-0000-000000000001', 'owner', 'qa_read', 'workspace', 'gym-a'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '20000000-0000-0000-0000-000000000002', 'owner', 'qa_read', 'workspace', 'gym-b');
+
+insert into public.subscription_entitlements (
+  owner_id, gym_id, status, source, manual_period_end, current_period_end
+) values
+  ('10000000-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'active', 'manual', now() + interval '30 days', now() + interval '30 days'),
+  ('20000000-0000-0000-0000-000000000002', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'active', 'manual', now() + interval '30 days', now() + interval '30 days');
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
 select lives_ok(
@@ -62,6 +72,13 @@ select lives_ok(
 select is(private.iv_current_gym_id(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'owner A resolves only to Gym A');
 select is(public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName', 'Gym A', 'owner A loads Gym A');
 select isnt(public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName', 'Gym B', 'owner A never loads Gym B');
+select is((select count(*) from public.gyms where id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), 0::bigint, 'owner A cannot read Gym B through the gyms table');
+select is((select count(*) from public.gym_users where gym_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), 0::bigint, 'owner A cannot read Gym B memberships through the gym_users table');
+select is((select count(*) from public.subscription_entitlements where gym_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), 0::bigint, 'owner A cannot read Gym B subscription through the table');
+select is((select count(*) from public.audit_logs where gym_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), 0::bigint, 'owner A cannot read Gym B audit entries through the table');
+select throws_ok('update public.gyms set name = ''Changed by Gym A'' where id = ''bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb''', '42501', null, 'owner A cannot update Gym B through direct table access');
+select throws_ok('delete from public.gym_users where gym_id = ''bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb''', '42501', null, 'owner A cannot delete Gym B memberships through direct table access');
+select throws_ok('update public.subscription_entitlements set status = ''expired'' where gym_id = ''bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb''', '42501', null, 'owner A cannot update Gym B subscription through direct table access');
 select ok(
   private.iv_can_access_private_object('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/members/photo.jpg'),
   'owner A can resolve private files inside Gym A'
@@ -69,6 +86,18 @@ select ok(
 select ok(
   not private.iv_can_access_private_object('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/members/photo.jpg'),
   'owner A cannot resolve Gym B private files'
+);
+select lives_ok(
+  $$
+    with loaded as (select public.load_current_gym_workspace() as payload),
+    attempted as (
+      select jsonb_set(payload -> 'state', '{settings,gymName}', '"Gym B Changed by A"'::jsonb, true) as state,
+             (payload ->> 'revision')::bigint as revision
+      from loaded
+    )
+    select public.save_current_gym_workspace(state, revision) from attempted
+  $$,
+  'owner A workspace RPC saves only the tenant resolved from auth.uid()'
 );
 select throws_ok(
   'select state from public.gym_workspaces',
@@ -85,7 +114,7 @@ select throws_ok(
 
 select set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-000000000002', true);
 select is(private.iv_current_gym_id(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 'owner B resolves only to Gym B');
-select is(public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName', 'Gym B', 'owner B loads Gym B');
+select is(public.load_current_gym_workspace() -> 'state' -> 'settings' ->> 'gymName', 'Gym B', 'owner B remains isolated after owner A saves a workspace');
 
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000003', true);
 select throws_ok(
@@ -185,17 +214,61 @@ select throws_ok(
   $$select public.iv_validate_private_asset_references(
     '{"version":1,"members":[{"id":"m1","photo":"data:image/png;base64,AAAA"}],"expenses":[]}'::jsonb
   )$$,
-  'P0001',
-  'INLINE_MEMBER_PHOTO_FORBIDDEN',
-  'inline member photos are rejected from persisted cloud workspaces'
+  '42501',
+  null,
+  'authenticated clients cannot directly execute the private-asset validator'
 );
 select throws_ok(
   $$select public.iv_validate_private_asset_references(
     '{"version":1,"members":[],"expenses":[{"id":"e1","attachment":{"dataUrl":"data:application/pdf;base64,AAAA"}}]}'::jsonb
   )$$,
+  '42501',
+  null,
+  'authenticated clients cannot invoke the private-asset validator for expense documents'
+);
+select throws_ok(
+  $$
+    with loaded as (select public.load_current_gym_workspace() as payload),
+    attempted as (
+      select jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            payload -> 'state',
+            '{members}',
+            '[{"id":"inline-member","photo":"data:image/png;base64,AAAA"}]'::jsonb,
+            true
+          ),
+          '{memberships}', '[]'::jsonb, true
+        ),
+        '{payments}', '[]'::jsonb, true
+      ) as state,
+      (payload ->> 'revision')::bigint as revision
+      from loaded
+    )
+    select public.save_current_gym_workspace(state, revision) from attempted
+  $$,
+  'P0001',
+  'INLINE_MEMBER_PHOTO_FORBIDDEN',
+  'workspace trigger still rejects inline member photos through the supported save RPC'
+);
+select throws_ok(
+  $$
+    with loaded as (select public.load_current_gym_workspace() as payload),
+    attempted as (
+      select jsonb_set(
+        payload -> 'state',
+        '{expenses}',
+        '[{"id":"inline-expense","title":"Fixture expense","amount":1,"attachment":{"dataUrl":"data:application/pdf;base64,AAAA"}}]'::jsonb,
+        true
+      ) as state,
+      (payload ->> 'revision')::bigint as revision
+      from loaded
+    )
+    select public.save_current_gym_workspace(state, revision) from attempted
+  $$,
   'P0001',
   'INLINE_EXPENSE_ATTACHMENT_FORBIDDEN',
-  'inline expense documents are rejected from persisted cloud workspaces'
+  'workspace trigger still rejects inline expense attachments through the supported save RPC'
 );
 
 select * from finish();

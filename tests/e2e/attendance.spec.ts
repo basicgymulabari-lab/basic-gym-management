@@ -139,6 +139,8 @@ async function installMockBackend(page: Page, initialState: GymState = testWorks
     if (pathname.endsWith("/auth/v1/user")) return response(route, owner);
     if (pathname.endsWith("/auth/v1/logout")) return route.fulfill({ status: 204, body: "" });
     if (pathname.endsWith("/rest/v1/gym_users")) return response(route, []);
+    if (pathname.endsWith("/functions/v1/staff-receptionist"))
+      return response(route, { account: null });
     if (pathname.endsWith("/rest/v1/rpc/get_current_gym_context"))
       return response(route, gymContext);
     if (pathname.endsWith("/rest/v1/rpc/load_current_gym_workspace")) {

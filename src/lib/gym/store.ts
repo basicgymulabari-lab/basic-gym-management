@@ -2115,7 +2115,7 @@ export function renewMembership(
     const member = st.members.find((m) => m.id === memberId);
     if (!plan || !member) return st;
     const current = st.memberships
-      .filter((m) => m.memberId === memberId)
+      .filter((m) => m.memberId === memberId && !m.deletedAt && !m.purgedAt)
       .sort((a, b) => +new Date(b.endDate) - +new Date(a.endDate))[0];
     const base = requestedStartDate
       ? new Date(requestedStartDate)
@@ -2199,7 +2199,7 @@ export function correctUnpaidMembership(input: {
 }): UnpaidMembershipChangeResult {
   const current = getState();
   const membership = current.memberships.find((item) => item.id === input.membershipId);
-  if (!membership) return "not_found";
+  if (!membership || membership.deletedAt || membership.purgedAt) return "not_found";
   if (current.payments.some((payment) => payment.membershipId === membership.id)) {
     return "payments_linked";
   }
@@ -2281,38 +2281,40 @@ export function correctUnpaidMembership(input: {
   return "saved";
 }
 
-/** Remove only an unpaid, unfrozen term; paid receipt references are never deleted. */
+/** Move a term to Trash while retaining all payment and receipt references. */
 export function voidUnpaidMembership(
   membershipId: string,
   reason: string,
 ): UnpaidMembershipChangeResult {
   const current = getState();
   const membership = current.memberships.find((item) => item.id === membershipId);
-  if (!membership) return "not_found";
-  if (current.payments.some((payment) => payment.membershipId === membershipId)) {
-    return "payments_linked";
-  }
-  if (membership.frozen) return "membership_frozen";
+  if (!membership || membership.deletedAt || membership.purgedAt) return "not_found";
   const trimmedReason = reason.trim();
   if (trimmedReason.length < 5 || trimmedReason.length > 500) return "invalid";
 
   const planName =
     current.plans.find((item) => item.id === membership.planId)?.name ?? "Membership";
   const saved = setState((workspace) => {
-    if (
-      !workspace.memberships.some((item) => item.id === membershipId) ||
-      workspace.payments.some((payment) => payment.membershipId === membershipId)
-    ) {
+    if (!workspace.memberships.some((item) => item.id === membershipId && !item.deletedAt)) {
       return workspace;
     }
     const next = {
       ...workspace,
-      memberships: workspace.memberships.filter((item) => item.id !== membershipId),
+      memberships: workspace.memberships.map((item) =>
+        item.id === membershipId
+          ? {
+              ...item,
+              deletedAt: new Date().toISOString(),
+              deletedBy: getCurrentSession()?.name || "Admin",
+              deletionReason: trimmedReason,
+            }
+          : item,
+      ),
     };
     return log(
       next,
       "membership_voided",
-      "Unpaid membership removed",
+      "Membership moved to Trash",
       `${planName} removed for ${trimmedReason}`,
       membership.memberId,
     );
@@ -2325,8 +2327,57 @@ export function voidUnpaidMembership(
   return "saved";
 }
 
+export function restoreMembershipTerm(membershipId: string) {
+  const workspace = getState();
+  const membership = workspace.memberships.find(
+    (item) => item.id === membershipId && item.deletedAt && !item.purgedAt,
+  );
+  if (
+    !membership ||
+    !workspace.members.some((item) => item.id === membership.memberId && !item.deletedAt)
+  )
+    return false;
+  return setState((state) => ({
+    ...state,
+    memberships: state.memberships.map((item) =>
+      item.id === membershipId
+        ? { ...item, deletedAt: null, deletedBy: null, deletionReason: undefined }
+        : item,
+    ),
+  }));
+}
+
+/** Retain the original term for linked receipts, but remove it from Trash recovery. */
+export function deleteMembershipTermForever(membershipId: string, confirmation: string) {
+  if (confirmation !== "DELETE") return false;
+  const session = getCurrentSession();
+  if (
+    session?.role === "receptionist" &&
+    (!session.permissions?.memberships || !session.permissions?.trash)
+  )
+    return false;
+  if (
+    !getState().memberships.some(
+      (term) => term.id === membershipId && term.deletedAt && !term.purgedAt,
+    )
+  )
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    memberships: workspace.memberships.map((term) =>
+      term.id === membershipId ? { ...term, purgedAt: new Date().toISOString() } : term,
+    ),
+  }));
+}
+
 export function toggleFreeze(membershipId: string) {
-  if (!getState().memberships.some((membership) => membership.id === membershipId)) return false;
+  if (
+    !getState().memberships.some(
+      (membership) =>
+        membership.id === membershipId && !membership.deletedAt && !membership.purgedAt,
+    )
+  )
+    return false;
   return setState((st) => ({
     ...st,
     memberships: st.memberships.map((m) => {
@@ -2360,7 +2411,11 @@ export function addPayment(input: {
   const member = state.members.find((item) => item.id === input.memberId && !item.deletedAt);
   const membership = input.membershipId
     ? state.memberships.find(
-        (item) => item.id === input.membershipId && item.memberId === input.memberId,
+        (item) =>
+          item.id === input.membershipId &&
+          item.memberId === input.memberId &&
+          !item.deletedAt &&
+          !item.purgedAt,
       )
     : undefined;
   const amount = normalizeMoney(input.amount);
@@ -2526,6 +2581,79 @@ export function addSalePayment(
   if (!saved || !paymentId) return false;
   auditCloud("payment_created", "payment", paymentId, { sale_id: sale.id, amount });
   return true;
+}
+
+/** Archive the receipt without reversing money received or changing member dues. */
+export function trashPaymentInvoice(paymentId: string) {
+  const session = getCurrentSession();
+  if (session?.role === "receptionist" && !session.permissions?.payments) return false;
+  if (
+    !getState().payments.some(
+      (payment) =>
+        payment.id === paymentId && !payment.invoiceDeletedAt && !payment.invoicePurgedAt,
+    )
+  )
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    payments: workspace.payments.map((payment) =>
+      payment.id === paymentId
+        ? {
+            ...payment,
+            invoiceDeletedAt: new Date().toISOString(),
+            invoiceDeletedBy: getCurrentSession()?.name || "Admin",
+          }
+        : payment,
+    ),
+  }));
+}
+
+export function restorePaymentInvoice(paymentId: string) {
+  const session = getCurrentSession();
+  if (
+    session?.role === "receptionist" &&
+    (!session.permissions?.payments || !session.permissions?.trash)
+  )
+    return false;
+  if (
+    !getState().payments.some(
+      (payment) => payment.id === paymentId && payment.invoiceDeletedAt && !payment.invoicePurgedAt,
+    )
+  )
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    payments: workspace.payments.map((payment) =>
+      payment.id === paymentId
+        ? { ...payment, invoiceDeletedAt: null, invoiceDeletedBy: null }
+        : payment,
+    ),
+  }));
+}
+
+/** Remove a receipt from recovery without deleting its financial payment. */
+export function deletePaymentInvoiceForever(paymentId: string, confirmation: string) {
+  if (confirmation !== "DELETE") return false;
+  const session = getCurrentSession();
+  if (
+    session?.role === "receptionist" &&
+    (!session.permissions?.payments || !session.permissions?.trash)
+  )
+    return false;
+  if (
+    !getState().payments.some(
+      (payment) => payment.id === paymentId && payment.invoiceDeletedAt && !payment.invoicePurgedAt,
+    )
+  )
+    return false;
+  return setState((workspace) => ({
+    ...workspace,
+    payments: workspace.payments.map((payment) =>
+      payment.id === paymentId
+        ? { ...payment, invoicePurgedAt: new Date().toISOString() }
+        : payment,
+    ),
+  }));
 }
 
 /* ------------------------------------------------------------------ */

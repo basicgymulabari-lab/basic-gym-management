@@ -12,6 +12,18 @@ export default defineConfig({
   // server logic lives in Supabase Edge Functions, so the browser bundle never
   // needs a Cloudflare Worker/service-role environment.
   tanstackStart: {
+    // The Cloudflare Worker uses the SPA shell for direct document routes.
+    // Give the public sign-in route its own shell so a cold /login visit does
+    // not preload the dashboard route's modules before the router hydrates.
+    pages: [
+      {
+        path: "/login",
+        prerender: {
+          outputPath: "/login-shell",
+          crawlLinks: false,
+        },
+      },
+    ],
     spa: {
       enabled: true,
       prerender: {

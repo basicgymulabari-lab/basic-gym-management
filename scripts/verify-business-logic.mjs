@@ -56,6 +56,8 @@ try {
   const store = await vite.ssrLoadModule("/src/lib/gym/store.ts");
   const cloud = await vite.ssrLoadModule("/src/lib/gym/cloud.ts");
   const billing = await vite.ssrLoadModule("/src/lib/billing/client.ts");
+  const idempotency = await vite.ssrLoadModule("/src/lib/billing/idempotency.ts");
+  const razorpayCheckout = await vite.ssrLoadModule("/src/lib/billing/razorpayCheckout.ts");
   const selectors = await vite.ssrLoadModule("/src/lib/gym/selectors.ts");
   const calendar = await vite.ssrLoadModule("/src/lib/gym/calendar.ts");
   const time = await vite.ssrLoadModule("/src/lib/gym/time.ts");
@@ -87,6 +89,55 @@ try {
     );
   }
   time.configureTimeZone(undefined, "india");
+  const stripeOperationKey = { current: null };
+  const firstStripeOperationKey = idempotency.getOrCreateIdempotencyKey(stripeOperationKey);
+  assert.equal(
+    idempotency.getOrCreateIdempotencyKey(stripeOperationKey),
+    firstStripeOperationKey,
+    "Stripe retries in the same checkout flow must reuse the provider idempotency key",
+  );
+  const scripts = [];
+  globalThis.document = {
+    createElement: () => ({
+      async: false,
+      onload: null,
+      onerror: null,
+      remove() {
+        this.removed = true;
+      },
+    }),
+    head: { appendChild: (script) => scripts.push(script) },
+  };
+  const firstCheckoutLoad = razorpayCheckout.loadRazorpayCheckout();
+  scripts[0].onerror();
+  await assert.rejects(firstCheckoutLoad, /could not be loaded/i);
+  let subscriptionCreates = 0;
+  const failedCheckoutPreparation = razorpayCheckout.withRazorpayCheckoutReady(async () => {
+    subscriptionCreates += 1;
+  });
+  scripts[1].onerror();
+  await assert.rejects(failedCheckoutPreparation, /could not be loaded/i);
+  assert.equal(
+    subscriptionCreates,
+    0,
+    "a subscription must not be created when the Razorpay checkout script fails",
+  );
+  const secondCheckoutLoad = razorpayCheckout.loadRazorpayCheckout();
+  assert.equal(scripts.length, 3, "a failed Razorpay script load should be retryable");
+  globalThis.window.Razorpay = class Razorpay {};
+  scripts[2].onload();
+  await secondCheckoutLoad;
+  assert.equal(
+    await razorpayCheckout.loadRazorpayCheckout().then(() => true),
+    true,
+    "a loaded Razorpay checkout script should be reused",
+  );
+  await razorpayCheckout.withRazorpayCheckoutReady(async () => {
+    subscriptionCreates += 1;
+  });
+  assert.equal(subscriptionCreates, 1, "subscription creation should proceed once checkout is ready");
+  delete globalThis.window.Razorpay;
+  delete globalThis.document;
   assert.equal(
     await billing.withRequestDeadline(Promise.resolve("verified"), 50),
     "verified",
@@ -2005,14 +2056,19 @@ try {
   );
   assert.equal(
     store.voidUnpaidMembership(paidTerm.id, "wrong plan selected"),
-    "payments_linked",
-    "a term with payments must not be removed or orphan its invoices",
+    "saved",
+    "a paid term can move to Trash without orphaning invoices",
   );
+  correctionState = store.getState();
+  assert(correctionState.memberships.find((item) => item.id === paidTerm.id)?.deletedAt);
+  assert.deepEqual(correctionState.payments, paymentSnapshot);
+  assert.equal(selectors.membershipHistory(correctionState, testMember.id).some((item) => item.id === paidTerm.id), false);
+  assert.equal(store.restoreMembershipTerm(paidTerm.id), true);
   correctionState = store.getState();
   assert.deepEqual(
     correctionState.memberships.find((item) => item.id === paidTerm.id),
-    paidTermSnapshot,
-    "rejected changes must leave the paid membership unchanged",
+    { ...paidTermSnapshot, deletedAt: null, deletedBy: null, deletionReason: undefined },
+    "restoring retains the original paid membership fields",
   );
   assert.deepEqual(correctionState.payments, paymentSnapshot);
 
@@ -2077,7 +2133,7 @@ try {
     "an unpaid term may be removed with a recorded reason",
   );
   correctionState = store.getState();
-  assert.equal(correctionState.memberships.some((item) => item.id === correctedTerm.id), false);
+  assert.equal(correctionState.memberships.some((item) => item.id === correctedTerm.id && !item.deletedAt), false);
   assert.equal(correctionState.payments.length, paymentCountBeforeCorrection);
   assert.equal(correctionState.activities[0].type, "membership_voided");
   assert.match(correctionState.activities[0].description, /duplicate term created by mistake/);
@@ -2094,6 +2150,14 @@ try {
 
   state = store.getState();
   const frozenMembership = selectors.currentMembership(state, testMember.id);
+  assert.equal(store.deleteMembershipTermForever(correctedTerm.id, "wrong"), false);
+  assert.equal(store.deleteMembershipTermForever(correctedTerm.id, "DELETE"), true);
+  assert.equal(store.restoreMembershipTerm(correctedTerm.id), false, "permanently removed terms cannot be restored");
+  assert.equal(store.getState().payments.length, paymentCountBeforeCorrection);
+  const concurrentTermState = structuredClone(store.getState());
+  concurrentTermState.memberships.find((term) => term.id === correctedTerm.id).deletedAt = null;
+  assert.equal(selectors.membershipHistory(concurrentTermState, testMember.id).some((term) => term.id === correctedTerm.id), false, "permanent removal wins over a concurrent restoration");
+  state = store.getState();
   assert.equal(
     store.toggleFreeze("membership-that-does-not-exist"),
     false,
@@ -2114,6 +2178,10 @@ try {
   target.frozen = true;
   target.frozenAt = new Date(Date.now() - 2 * selectors.DAY).toISOString();
   store.restoreBackup(JSON.stringify(modified));
+  assert.equal(store.voidUnpaidMembership(frozenMembership.id, "Accidental frozen term"), "saved");
+  assert.equal(selectors.membershipHistory(store.getState(), testMember.id).some((item) => item.id === frozenMembership.id), false);
+  assert.equal(store.restoreMembershipTerm(frozenMembership.id), true);
+  assert.equal(selectors.currentMembership(store.getState(), testMember.id).frozen, true);
   store.toggleFreeze(frozenMembership.id);
   const extended = selectors.currentMembership(store.getState(), testMember.id);
   assert.equal(extended.frozen, false);

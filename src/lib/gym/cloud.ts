@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "../../integrations/supabase/client";
+import { invokeEdgeFunction } from "../../integrations/supabase/functions";
 import type { Json } from "../../integrations/supabase/types";
 import { subscriptionFromGymContext } from "../billing/client";
 import type { GymState, ReceptionistPermissions } from "./types";
@@ -181,23 +182,28 @@ export async function ensureOwnerGym(
   return context;
 }
 
-async function ownerReceptionist(gymId: string) {
-  const { data, error } = await supabase
-    .from("gym_users")
-    .select("display_name,email,enabled,permissions")
-    .eq("gym_id", gymId)
-    .eq("role", "receptionist")
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return undefined;
+async function ownerReceptionist() {
+  const { account } = await invokeEdgeFunction<{
+    account?: {
+      display_name?: unknown;
+      name?: unknown;
+      email?: unknown;
+      enabled?: unknown;
+      permissions?: unknown;
+    } | null;
+  }>("staff-receptionist", { body: { action: "read" } });
+  if (!account) return undefined;
   return {
-    enabled: data.enabled,
-    name: data.display_name || "Receptionist",
-    email: data.email,
+    enabled: account.enabled !== false,
+    name:
+      (typeof account.name === "string" && account.name) ||
+      (typeof account.display_name === "string" && account.display_name) ||
+      "Receptionist",
+    email: typeof account.email === "string" ? account.email : "",
     passwordHash: "cloud-managed",
     permissions: {
       ...DEFAULT_CLOUD_RECEPTIONIST_PERMISSIONS,
-      ...permissionsFrom(data.permissions),
+      ...permissionsFrom(account.permissions),
     },
   };
 }
@@ -213,7 +219,7 @@ export async function loadCloudWorkspace(): Promise<CloudWorkspace | null> {
   if (!context || !workspace || !Number.isFinite(revision)) return null;
   const next = workspace as unknown as GymState;
   if (context.role === "owner") {
-    const receptionist = await ownerReceptionist(context.gymId);
+    const receptionist = await ownerReceptionist();
     next.staff = receptionist ? { receptionist } : {};
   } else {
     next.staff = {};

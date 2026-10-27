@@ -3,6 +3,10 @@ import { useMemo, useState, type ReactNode } from "react";
 import { RotateCcw, Trash2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
+import {
+  DeleteTrashedMembershipTerm,
+  TrashedMembershipDetails,
+} from "@/components/app/TrashedMembershipTerm";
 import { PageHeader, Panel, EmptyState } from "@/components/app/Panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +36,9 @@ import {
   deleteExpensePermanently,
   restoreExpense,
   restoreAttendanceRecord,
+  restoreMembershipTerm,
+  restorePaymentInvoice,
+  deletePaymentInvoiceForever,
   restoreMember,
   restorePlan,
   restoreProduct,
@@ -95,6 +102,8 @@ export const Route = createFileRoute("/trash")({
 function TrashPage() {
   const state = useGym();
   const [target, setTarget] = useState<Member | null>(null);
+  const [invoiceTarget, setInvoiceTarget] = useState<string | null>(null);
+  const [invoiceConfirmation, setInvoiceConfirmation] = useState("");
   const [attendanceTarget, setAttendanceTarget] = useState<AttendanceRecord | null>(null);
   const [detailsTarget, setDetailsTarget] = useState<TrashDetailsTarget | null>(null);
 
@@ -121,7 +130,185 @@ function TrashPage() {
         </p>
       </div>
 
-      <Panel title="Deleted Members">
+      <Panel title="Deleted Invoices">
+        {state.payments.filter((payment) => payment.invoiceDeletedAt && !payment.invoicePurgedAt)
+          .length === 0 ? (
+          <EmptyState
+            title="No deleted invoices"
+            hint="Receipts moved to Trash remain recoverable. Payments still count toward revenue and paid amounts."
+            className="gap-0.5 px-3 py-2 [&>p:first-child]:text-base [&>p:last-child]:text-xs [&>p:last-child]:leading-5 sm:py-4"
+          />
+        ) : (
+          <div className="space-y-3">
+            {state.payments
+              .filter((payment) => payment.invoiceDeletedAt && !payment.invoicePurgedAt)
+              .map((payment) => (
+                <article
+                  key={payment.id}
+                  className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border p-4"
+                >
+                  <div className="min-w-0 space-y-1 text-sm">
+                    <h3 className="break-words font-medium">
+                      {payment.invoiceNo} ·{" "}
+                      {state.members.find((member) => member.id === payment.memberId)?.name ??
+                        payment.payerName ??
+                        "Walk-in customer"}
+                    </h3>
+                    <p>
+                      {money(payment.amount, state.settings.currency)} · {payment.method} ·{" "}
+                      {shortDateTime(payment.date)}
+                    </p>
+                    <p className="break-words text-muted-foreground">{payment.note}</p>
+                    <p className="text-muted-foreground">
+                      Deleted {shortDateTime(payment.invoiceDeletedAt!)} by{" "}
+                      {payment.invoiceDeletedBy ?? "Admin"}
+                    </p>
+                    <p className="text-xs text-warning">
+                      Receipt hidden only. Payment retained in financial totals.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      if (restorePaymentInvoice(payment.id)) toast.success("Invoice restored");
+                      else toast.error("Invoice could not be restored. Check your account access.");
+                    }}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Restore invoice
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => {
+                      setInvoiceTarget(payment.id);
+                      setInvoiceConfirmation("");
+                    }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete forever
+                  </Button>
+                </article>
+              ))}
+          </div>
+        )}
+      </Panel>
+
+      <Dialog
+        open={Boolean(invoiceTarget)}
+        onOpenChange={(open) => {
+          if (!open) setInvoiceTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete invoice forever?</DialogTitle>
+            <DialogDescription>
+              This removes the receipt from Trash and prevents restoration. The payment record
+              remains in financial totals; this does not refund money or change dues. Type DELETE to
+              confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <Label htmlFor="invoice-delete-confirmation">Type DELETE</Label>
+          <Input
+            id="invoice-delete-confirmation"
+            value={invoiceConfirmation}
+            onChange={(event) => setInvoiceConfirmation(event.target.value)}
+            autoComplete="off"
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={() => setInvoiceTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={invoiceConfirmation !== "DELETE"}
+              onClick={() => {
+                if (
+                  invoiceTarget &&
+                  deletePaymentInvoiceForever(invoiceTarget, invoiceConfirmation)
+                ) {
+                  toast.success("Invoice removed from Trash permanently; payment retained");
+                  setInvoiceTarget(null);
+                } else toast.error("Invoice could not be removed. Check your account access.");
+              }}
+            >
+              Delete forever
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Panel title="Deleted Membership Terms" className="mt-6">
+        {state.memberships.filter((term) => term.deletedAt && !term.purgedAt).length === 0 ? (
+          <EmptyState
+            title="No deleted membership terms"
+            hint="Deleted terms appear here for recovery. Payments and receipts are preserved."
+            className="gap-0.5 px-3 py-2 [&>p:first-child]:text-base [&>p:last-child]:text-xs [&>p:last-child]:leading-5 sm:py-4"
+          />
+        ) : (
+          <div className="space-y-3">
+            {state.memberships
+              .filter((term) => term.deletedAt && !term.purgedAt)
+              .map((term) => {
+                const member = state.members.find((item) => item.id === term.memberId);
+                const paid = paidFor(state, term.id);
+                return (
+                  <article
+                    key={term.id}
+                    className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border p-4"
+                  >
+                    <div className="min-w-0 space-y-1 text-sm">
+                      <h3 className="break-words font-medium">
+                        <TrashedMembershipDetails term={term} />
+                      </h3>
+                      <p className="text-muted-foreground">
+                        {shortDate(term.startDate)} → {shortDate(term.endDate)}
+                      </p>
+                      <p>
+                        Total {money(membershipPayable(term), state.settings.currency)} · Paid{" "}
+                        {money(paid, state.settings.currency)} · Due{" "}
+                        {money(
+                          Math.max(0, membershipPayable(term) - paid),
+                          state.settings.currency,
+                        )}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Deleted {shortDateTime(term.deletedAt!)} by {term.deletedBy ?? "Admin"}
+                      </p>
+                      {term.deletionReason && (
+                        <p className="break-words text-muted-foreground">
+                          Reason: {term.deletionReason}
+                        </p>
+                      )}
+                      {member?.deletedAt && (
+                        <p className="text-warning">Restore the member first.</p>
+                      )}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      disabled={!member || Boolean(member.deletedAt)}
+                      onClick={() => {
+                        if (restoreMembershipTerm(term.id))
+                          toast.success("Membership term restored");
+                        else
+                          toast.error(
+                            "The term could not be restored. Check member status and account access.",
+                          );
+                      }}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Restore term
+                    </Button>
+                    <DeleteTrashedMembershipTerm term={term} />
+                  </article>
+                );
+              })}
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Deleted Members" className="mt-6">
         {items.length === 0 ? (
           <EmptyState
             title="No deleted members"
